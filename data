@@ -1,0 +1,24 @@
+---
+claimed_at: 2026-10-02T20:37:00Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:37:00Z
+created: 2026-10-02T19:24:53Z
+depends_on:
+- 5
+- 6
+id: 8
+priority: medium
+started: 2026-10-02T20:37:00Z
+status: done
+tags:
+- examples
+title: 'Examples: Plack and Mojolicious host apps, store with DBI and DBIO'
+updated: 2026-10-02T20:37:00Z
+---
+
+examples/ with a minimal approval page in Plack and in Mojolicious, the four store subs with DBI (SQLite) and with DBIO; run Airlock::Test::Store against the DBI example. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 5.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 8.
+
+ Done in dd2dafc; review fixes in 09c6cf2.
