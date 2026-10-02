@@ -2,80 +2,58 @@
 
 # Makes the test realm report how someone logged in.
 #
-#   perl t/keycloak/setup.pl http://localhost:8080 [admin-user] [admin-password]
+#   perl -I ~/dev/p5-www-keycloak/lib t/keycloak/setup.pl http://localhost:8080 [admin-user] [admin-password]
 #
-# Keycloak only puts an "amr" claim into a token when two things are in place:
-# the client has the AMR protocol mapper (that part is in realm.json), and the
-# steps of the authentication flow each carry a reference value. The second
-# part cannot be imported without spelling out every built-in flow, so this
-# script sets it through the Admin REST API. It can be run any number of times.
+# Keycloak only puts an "amr" claim into a token when the client has the AMR
+# protocol mapper and the steps of the authentication flows carry a reference
+# value. The mapper is in realm.json; the reference values cannot be imported
+# without spelling out every built-in flow, so this script sets both through
+# the Admin REST API with WWW::Keycloak. It can be run any number of times.
 #
 # Checked against Keycloak 26.8.0.
 
 use strict;
 use warnings;
-use HTTP::Tiny;
-use JSON::MaybeXS;
+use WWW::Keycloak;
 
 my ( $base, $user, $password ) = @ARGV;
 die 'usage: setup.pl KEYCLOAK_URL [admin-user] [admin-password]'."\n" unless $base;
-$base =~ s{/+\z}{};
-$user     //= 'admin';
-$password //= 'admin';
 
-my $realm = 'airlock-test';
-my $http  = HTTP::Tiny->new( timeout => 20 );
-my $json  = JSON::MaybeXS->new( utf8 => 1, canonical => 1 );
+my $admin = WWW::Keycloak->new(
+  base_url => $base,
+  realm    => 'airlock-test',
+  username => $user // 'admin',
+  password => $password // 'admin'
+)->admin;
 
-# flow alias => { authenticator => amr value }
-my %reference = (
-  'browser'      => { 'auth-username-password-form'    => 'pwd', 'auth-otp-form'             => 'otp' },
-  'direct grant' => { 'direct-grant-validate-password' => 'pwd', 'direct-grant-validate-otp' => 'otp' }
-);
-
-# how long, in seconds, a step counts towards amr after it was passed
+# how long, in seconds, a passed step counts towards amr
 my $max_age = 3600;
 
-my $login = $http->post_form(
-  $base.'/realms/master/protocol/openid-connect/token',
-  { grant_type => 'password', client_id => 'admin-cli', username => $user, password => $password }
-);
-die 'admin login failed: '.$login->{status}.' '.$login->{content}."\n" unless $login->{success};
-my $token = $json->decode( $login->{content} )->{access_token};
-
-sub admin {
-  my ( $method, $path, $body ) = @_;
-  my $response = $http->request(
-    $method, $base.'/admin/realms/'.$realm.$path,
-    {
-      headers => { Authorization => 'Bearer '.$token, 'Content-Type' => 'application/json' },
-      defined $body ? ( content => $json->encode($body) ) : ()
-    }
-  );
-  die $method.' '.$path.' failed: '.$response->{status}.' '.$response->{content}."\n" unless $response->{success};
-  return length $response->{content} ? $json->decode( $response->{content} ) : undef;
+sub report {
+  my ( $what, $result ) = @_;
+  printf "%-8s %s\n", $result->{changed} || 'ok', $what;
+  return;
 }
 
-for my $flow ( sort keys %reference ) {
-  my $executions = admin( GET => '/authentication/flows/'.( $flow =~ s/ /%20/gr ).'/executions' );
-  for my $authenticator ( sort keys %{ $reference{$flow} } ) {
-    my ( $execution ) = grep { ( $_->{providerId} // '' ) eq $authenticator } @$executions;
-    die 'flow "'.$flow.'" has no step '.$authenticator."\n" unless $execution;
-    my $config = {
-      alias  => 'amr '.$flow.' '.$authenticator,
-      config => {
-        'default.reference.value'  => $reference{$flow}{$authenticator},
-        'default.reference.maxAge' => $max_age
-      }
-    };
-    if ( my $id = $execution->{authenticationConfig} ) {
-      admin( PUT => '/authentication/config/'.$id, { %$config, id => $id } );
-      print 'updated  ';
-    }
-    else {
-      admin( POST => '/authentication/executions/'.$execution->{id}.'/config', $config );
-      print 'created  ';
-    }
-    print $flow.' / '.$authenticator.' => '.$reference{$flow}{$authenticator}."\n";
-  }
+report( 'client airlock-test-cli: AMR mapper', $admin->ensure_protocol_mapper(
+  client         => 'airlock-test-cli',
+  name           => 'amr',
+  protocolMapper => 'oidc-amr-mapper',
+  config         => { map { $_ => 'true' } qw( id.token.claim access.token.claim introspection.token.claim userinfo.token.claim ) }
+) );
+
+for my $step (
+  [ 'browser',      'auth-username-password-form',    'pwd' ],
+  [ 'browser',      'auth-otp-form',                  'otp' ],
+  [ 'direct grant', 'direct-grant-validate-password', 'pwd' ],
+  [ 'direct grant', 'direct-grant-validate-otp',      'otp' ]
+  )
+{
+  my ( $flow, $authenticator, $amr ) = @$step;
+  report( $flow.' / '.$authenticator.' => '.$amr, $admin->ensure_execution_config(
+    flow          => $flow,
+    authenticator => $authenticator,
+    alias         => 'amr '.$flow.' '.$authenticator,
+    config        => { 'default.reference.value' => $amr, 'default.reference.maxAge' => $max_age }
+  ) );
 }

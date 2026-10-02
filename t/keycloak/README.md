@@ -39,8 +39,11 @@ already short of it.
 ## Make the realm report how someone logged in
 
 ```bash
-perl t/keycloak/setup.pl http://localhost:8080
+perl -I ~/dev/p5-www-keycloak/lib t/keycloak/setup.pl http://localhost:8080
 ```
+
+The script uses `WWW::Keycloak` (repository `p5-www-keycloak`); point `-I` at
+its `lib` until it is installed.
 
 A default realm puts no `amr` into its tokens. Two things change that. The
 client needs the AMR protocol mapper; that is part of `realm.json`. And each
