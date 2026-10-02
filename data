@@ -1,0 +1,24 @@
+---
+claimed_at: 2026-10-02T20:36:59Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:59Z
+created: 2026-10-02T19:24:52Z
+depends_on:
+- 5
+- 1
+id: 6
+priority: medium
+started: 2026-10-02T20:36:59Z
+status: done
+tags:
+- client
+title: 'Airlock::Client: RFC 8628 client over HTTP::Tiny'
+updated: 2026-10-02T20:36:59Z
+---
+
+Discovery via .well-known/openid-configuration or explicit endpoints, shows code and terminal QR, polls, honours slow_down. Tested against to_app on a local port. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 6.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 7.
+
+ Done in 211bf78; review fixes in 09c6cf2.
