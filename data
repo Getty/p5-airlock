@@ -1,0 +1,23 @@
+---
+claimed_at: 2026-10-02T20:36:57Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:57Z
+created: 2026-10-02T19:24:51Z
+depends_on:
+- 9
+id: 4
+priority: medium
+started: 2026-10-02T20:36:57Z
+status: done
+tags:
+- factor
+title: 'Factors and policy: Callback, TOTP, Upstream'
+updated: 2026-10-02T20:36:57Z
+---
+
+Airlock::Factor role; ::Callback, ::TOTP (RFC 6238 test vectors, window +-1, replay protection, otpauth URI), ::Upstream (amr/acr/auth_time). Declarative policy plus coderef. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 6.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 4 (needs Airlock::Code from card 9).
+
+ Done in c47dd1b; review fixes in 09c6cf2.
