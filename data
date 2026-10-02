@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-10-02T20:36:56Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:56Z
+created: 2026-10-02T19:24:51Z
+id: 3
+priority: high
+started: 2026-10-02T20:36:56Z
+status: done
+tags:
+- store
+- tests
+title: Airlock::Test::Store contract suite for the four store subs
+updated: 2026-10-02T20:36:56Z
+---
+
+insert/find/update/purge contract as a reusable suite; run it against the built-in store. update must be conditional on the old state. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 6 (Store).
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 3.
+
+ Done in c622fdb; review fixes in 09c6cf2.
