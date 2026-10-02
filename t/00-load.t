@@ -7,6 +7,8 @@ for (qw(
   Airlock
   Airlock::Code
   Airlock::QR
+  Airlock::Store::Memory
+  Airlock::Test::Store
 )) {
   use_ok($_);
 }
