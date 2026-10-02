@@ -74,7 +74,7 @@ Four subs against whatever database you have:
 |---|---|
 | `insert(\%row)` | stores a row; dies on a duplicate `hash` or `user_code` |
 | `find($field, $value)` | row by `hash` or `user_code`, or nothing |
-| `update($hash, $from_state, \%changes)` | applies the changes only if `state` is still `$from_state`; returns true if it did |
+| `update($hash, $from_state, \%changes)` | applies the changes only if `state` is still `$from_state`; returns true if it did. A value that is a reference to a number (`\1`) is added to the column |
 | `purge($before)` | removes rows with `expires < $before`; optional |
 
 `update` is the only one that has to be atomic. `Airlock->row_fields` lists
@@ -97,7 +97,9 @@ and wrong under a preforking server; it croaks when used across a fork.
 | `Airlock::Factor::TOTP` | RFC 6238, secrets supplied by your application |
 | `Airlock::Factor::Upstream` | the identity provider already checked one (`amr`, `acr`, `auth_time`) |
 
-`Airlock::Upstream::Keycloak` turns Keycloak token claims into a subject.
+`Airlock::Upstream::Keycloak` turns Keycloak token claims into a subject. A
+default Keycloak realm does not report a second factor in its tokens; see
+`t/keycloak/README.md` for what was observed.
 
 ## QR codes
 

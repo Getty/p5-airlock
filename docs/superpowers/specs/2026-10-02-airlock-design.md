@@ -314,7 +314,7 @@ Entwicklungs-Abhängigkeit.
 ## 11. Beim Planen geklärt (Revision 3)
 
 Der Umsetzungsplan wurde gegen einen lauffähigen Prototyp geschrieben. Dabei haben sich
-sieben Punkte gegenüber dem Text oben verschoben; wo sie ihm widersprechen, gelten sie.
+mehrere Punkte gegenüber dem Text oben verschoben; wo sie ihm widersprechen, gelten sie.
 
 - **`handle` ist keine Methode von `Airlock`.** Es lebt in `Airlock::HTTPMessage->new(
   airlock => $airlock )->handle( $request, ip => ... )`. Grund: Die Hausregel verbietet
@@ -337,6 +337,21 @@ sieben Punkte gegenüber dem Text oben verschoben; wo sie ihm widersprechen, gel
   Matrizen in allen vier Fehlerkorrektur-Stufen zurück.
 - **`code_miss` trägt das Subject, nicht die Herkunft.** IP und Session kennt die Host-App
   an der Stelle selbst.
+
+Nach dem unabhängigen Review und dem ersten Live-Lauf gegen Keycloak kamen dazu:
+
+- **Der Store kann addieren.** Ein Wert in den Änderungen von `update`, der eine Referenz
+  auf eine Zahl ist (`{ factor_failures => \1 }`), wird zur Spalte addiert. Nur so zählen
+  parallele Fehlversuche einzeln; `Airlock::Test::Store` prüft es.
+- **Faktoren haben zwei Phasen:** `verify` prüft, `commit` verbraucht. Ein TOTP-Code wird
+  erst verbraucht, wenn alle Faktoren einer Bestätigung gehalten haben, und `accept_step`
+  kann eine verlorene Wettlauf-Situation durch einen falschen Rückgabewert melden.
+- **Ein leerer Nachweis gilt als fehlend,** nicht als Fehlversuch.
+- **`auth_time` wird nicht erfunden.** Bringt das Subject keines mit, hat der Grant keines.
+- **Keycloak-Befund (26.8.0, Standard-Realm):** Passwort-Login und Login mit TOTP tragen
+  beide `acr=1` und kein `amr`. Punkt A aus Abschnitt 7 funktioniert deshalb erst, wenn der
+  Realm so konfiguriert ist, dass er den zweiten Faktor meldet. Punkt B ist bestätigt:
+  `Airlock::Client` läuft gegen Keycloaks Device-Endpunkt. Details in `t/keycloak/README.md`.
 
 Die Policy ist eine eigene Klasse `Airlock::Policy`; ein Hash wird beim Konstruieren
 umgewandelt. Ergebnisse sind `Airlock::Result`-Objekte mit `ok`, `status`, `data`,

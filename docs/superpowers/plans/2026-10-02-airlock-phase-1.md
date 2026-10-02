@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-02-airlock-design.md` (Revision 3). Der Plan setzt die Spec um; wer eine Aufgabe ausführt, liest den zugehörigen Spec-Abschnitt mit.
 
+## Ausführung
+
+Ausgeführt am 2026-10-02: Aufgaben 1 bis 8 und die Schritte 1 bis 7 von Aufgabe 9, ein
+Commit pro Aufgabe (`e83b806` bis `9e506b9`). Danach hat ein unabhängiger Review Mängel
+gefunden, die in einem eigenen Commit behoben sind; der Code im Repo weicht deshalb an
+diesen Stellen von den Listings unten ab (Store-Inkrement, `verify`/`commit` bei Faktoren,
+Client-Grenzen, Beispiele nur per POST). Maßgeblich ist das Repo, nicht dieses Dokument.
+Der Keycloak-Live-Test lief gegen Keycloak 26.8.0; Befund in `t/keycloak/README.md`.
+
 ## Stand des Codes in diesem Plan
 
 Der gesamte Code dieses Plans ist am 2026-10-02 als Prototyp außerhalb des Repos gelaufen: `prove -lr t` mit 133 Tests grün, `dzil test` im Endzustand grün (inklusive POD-Syntax nach dem Weaving). Zwei Dinge sind dabei **nicht** gelaufen und deshalb die Stellen, an denen mit Abweichungen zu rechnen ist:
