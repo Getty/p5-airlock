@@ -2,21 +2,682 @@ package Airlock;
 
 # ABSTRACT: Embeddable device authorization (RFC 8628) with step-up second factors
 
-use strict;
-use warnings;
+use Moo;
+use Airlock::Code;
+use Airlock::Policy;
+use Airlock::Result;
+use Airlock::Store::Memory;
+use Carp qw( croak );
+use Types::Standard qw( ArrayRef CodeRef ConsumerOf HashRef InstanceOf Int Str );
+use namespace::autoclean;
 
 our $VERSION = '0.001';
 
-1;
+=synopsis
 
-__END__
+    my $airlock = Airlock->new(
+      clients          => { 'my-cli' => { name => 'My CLI', scopes => [qw( read admin )] } },
+      verification_uri => 'https://my.example.org/airlock',
+      store            => { insert => sub {...}, find => sub {...}, update => sub {...}, purge => sub {...} },
+      policy           => { step_up => { admin => ['totp'] } },
+      factors          => [ Airlock::Factor::Callback->new( name => 'totp', amr => 'otp', verify => sub {...} ) ],
+    );
 
-=head1 DESCRIPTION
+    # human side: the host application renders its own page
+    my $view  = $airlock->inspect( $typed_code, subject => $subject ) or return not_found();
+    my $needs = $airlock->requirements( $view, $subject );            # ['totp']
+    my $done  = $airlock->approve( $typed_code, subject => $subject, proofs => { totp => $typed_totp } );
 
-Airlock is an embeddable core for approving a waiting request from an already
-trusted session: the OAuth 2.0 Device Authorization Grant (RFC 8628) on the
-server side, with an optional second factor before the approval counts.
+=description
 
-This is a skeleton. The design lives in F<docs/superpowers/specs/>.
+Airlock approves a waiting request from an already trusted session: the server
+side of the OAuth 2.0 Device Authorization Grant (RFC 8628), with an optional
+second factor before the approval counts.
+
+It is a core to embed. The host application supplies who is logged in, the
+approval page and where rows are kept. Airlock supplies codes, the state
+machine, poll rules, one-time redemption, step-up policy, second factors and
+the two machine endpoints.
+
+A request moves C<pending> to C<approved>, C<denied> or C<expired>, and
+C<approved> to C<redeemed> exactly once.
 
 =cut
+
+has clients => (
+  is       => 'ro',
+  isa      => HashRef | CodeRef,
+  required => 1
+);
+
+=attr clients
+
+Required. Who may ask. A hash of client id to C<< { name => ..., scopes => [...] } >>,
+or a coderef called with a client id that returns such a hash or nothing. A
+client without C<scopes> may ask for any scope.
+
+=cut
+
+has verification_uri => (
+  is       => 'ro',
+  isa      => Str,
+  required => 1
+);
+
+=attr verification_uri
+
+Required. Where the host application serves its approval page.
+
+=cut
+
+has store => (
+  is  => 'lazy',
+  isa => HashRef[CodeRef]
+);
+
+sub _build_store { Airlock::Store::Memory->new->as_subs }
+
+=attr store
+
+Hash of four coderefs: C<insert>, C<find>, C<update> and optionally C<purge>.
+The contract is documented in L<Airlock::Store::Memory> and checked by
+L<Airlock::Test::Store>. Default: an in-process store.
+
+=cut
+
+has policy => (
+  is     => 'lazy',
+  isa    => InstanceOf['Airlock::Policy'],
+  coerce => sub { ref $_[0] eq 'HASH' ? Airlock::Policy->new( $_[0] ) : $_[0] }
+);
+
+sub _build_policy { Airlock::Policy->new }
+
+=attr policy
+
+An L<Airlock::Policy> or the hash to build one from. Default: no factors.
+
+=cut
+
+has factors => (
+  is      => 'ro',
+  isa     => ArrayRef[ConsumerOf['Airlock::Factor']],
+  default => sub { [] }
+);
+
+=attr factors
+
+The L<Airlock::Factor> objects a policy may name.
+
+=cut
+
+has issuer => (
+  is        => 'ro',
+  isa       => CodeRef,
+  predicate => 'has_issuer'
+);
+
+=attr issuer
+
+Optional. Coderef called with the grant, returning the token response as a
+hash. Without it Airlock issues an opaque random token, keeps its hash in the
+store and checks it with L</verify_token>.
+
+=cut
+
+has on_event => (
+  is        => 'ro',
+  isa       => CodeRef,
+  predicate => 'has_on_event'
+);
+
+=attr on_event
+
+Optional. Coderef called with a hash for C<opened>, C<approved>, C<denied>,
+C<redeemed>, C<factor_failed> and C<code_miss>. Hang the audit log and rate
+limits here. Events never carry codes, tokens or proofs.
+
+=cut
+
+has now => (
+  is      => 'ro',
+  isa     => CodeRef,
+  default => sub { sub { time } }
+);
+
+=attr now
+
+Coderef returning the current epoch. For tests.
+
+=cut
+
+has expires_in => (
+  is      => 'ro',
+  isa     => Int,
+  default => 600
+);
+
+=attr expires_in
+
+Seconds a request lives. Default 600.
+
+=cut
+
+has interval => (
+  is      => 'ro',
+  isa     => Int,
+  default => 5
+);
+
+=attr interval
+
+Seconds a client has to wait between polls. Default 5.
+
+=cut
+
+has token_ttl => (
+  is      => 'ro',
+  isa     => Int,
+  default => 3600
+);
+
+=attr token_ttl
+
+Seconds an opaque token lives. Default 3600.
+
+=cut
+
+has max_factor_failures => (
+  is      => 'ro',
+  isa     => Int,
+  default => 5
+);
+
+=attr max_factor_failures
+
+Wrong proofs after which a request is denied. Default 5.
+
+=cut
+
+has code => (
+  is  => 'lazy',
+  isa => InstanceOf['Airlock::Code']
+);
+
+sub _build_code { Airlock::Code->new }
+
+=attr code
+
+The L<Airlock::Code> that generates and normalizes codes.
+
+=cut
+
+has _factor_index => (
+  is       => 'lazy',
+  init_arg => undef
+);
+
+sub _build__factor_index {
+  my ( $self ) = @_;
+  return { map { $_->name => $_ } @{ $self->factors } };
+}
+
+sub BUILD {
+  my ( $self ) = @_;
+  for (qw( insert find update )) {
+    croak __PACKAGE__.'->new store needs a '.$_.' sub' unless ref $self->store->{$_} eq 'CODE';
+  }
+  return;
+}
+
+sub row_fields {
+  return qw(
+    hash kind user_code client_id scope state created expires poll_interval last_poll
+    subject amr acr auth_time approved origin_ip origin_ua factor_failures
+  );
+}
+
+=method row_fields
+
+    my @columns = Airlock->row_fields;
+
+Every key of a row the store sees. All values are plain scalars or undef.
+
+=cut
+
+sub client {
+  my ( $self, $id ) = @_;
+  return unless defined $id && length $id;
+  my $clients = $self->clients;
+  my $client  = ref $clients eq 'CODE' ? $clients->($id) : $clients->{$id};
+  return unless ref $client eq 'HASH';
+  return { name => $id, %$client, id => $id };
+}
+
+=method client
+
+    my $client = $airlock->client('my-cli');   # { id => ..., name => ..., scopes => [...] }
+
+The registered client, or nothing.
+
+=cut
+
+sub factor {
+  my ( $self, $name ) = @_;
+  return $self->_factor_index->{$name} // croak __PACKAGE__.'->factor unknown factor '.$name;
+}
+
+=method factor
+
+    my $upstream = $airlock->factor('upstream');
+
+The factor of that name. Croaks when a policy names a factor that was never
+configured.
+
+=cut
+
+sub open {
+  my ( $self, %arg ) = @_;
+  my $client = $self->client( $arg{client_id} ) or return $self->_fail('invalid_client');
+  my @scopes = grep { length } split /\s+/, $arg{scope} // '';
+  my %allowed = map { $_ => 1 } @{ $client->{scopes} || [] };
+  for my $scope (@scopes) {
+    return $self->_fail('invalid_scope') unless $scope =~ /\A[\x21\x23-\x5B\x5D-\x7E]+\z/;
+    return $self->_fail('invalid_scope') if $client->{scopes} && !$allowed{$scope};
+  }
+  my $now         = $self->_time;
+  my $device_code = $self->code->secret;
+  my $user_code   = $self->_free_user_code($now);
+  my $origin      = $arg{origin} || {};
+  $self->store->{insert}->( {
+    hash            => $self->code->hash($device_code),
+    kind            => 'request',
+    user_code       => $user_code,
+    client_id       => $client->{id},
+    scope           => join( ' ', @scopes ),
+    state           => 'pending',
+    created         => $now,
+    expires         => $now + $self->expires_in,
+    poll_interval   => $self->interval,
+    last_poll       => undef,
+    subject         => undef,
+    amr             => undef,
+    acr             => undef,
+    auth_time       => undef,
+    approved        => undef,
+    origin_ip       => $self->_clip( $origin->{ip}, 64 ),
+    origin_ua       => $self->_clip( $origin->{ua}, 255 ),
+    factor_failures => 0
+  } );
+  $self->_emit( 'opened', client_id => $client->{id}, origin => $origin );
+  my $shown = $self->code->display($user_code);
+  my $uri   = $self->verification_uri;
+  return $self->_ok( 'opened', data => {
+    device_code               => $device_code,
+    user_code                 => $shown,
+    verification_uri          => $uri,
+    verification_uri_complete => $uri.( $uri =~ /\?/ ? '&' : '?' ).'user_code='.$shown,
+    expires_in                => $self->expires_in,
+    interval                  => $self->interval
+  } );
+}
+
+=method open
+
+    my $result = $airlock->open( client_id => 'my-cli', scope => 'read admin', origin => { ip => $ip, ua => $ua } );
+
+Starts a request. On success C<data> is the device authorization response of
+RFC 8628 section 3.2. Fails with C<invalid_client> or C<invalid_scope>.
+
+=cut
+
+sub inspect {
+  my ( $self, $input, %arg ) = @_;
+  my $row = $self->_pending($input);
+  return $self->_view($row) if $row;
+  $self->_miss( $arg{subject} );
+  return;
+}
+
+=method inspect
+
+    my $view = $airlock->inspect( $typed_code, subject => $subject ) or return not_found();
+
+What an approval page has to show: C<user_code>, C<client_id>, C<client_name>,
+C<scopes>, C<origin> (C<ip>, C<ua>), C<created>, C<age> and C<expires_in>.
+Returns nothing when the code is unknown, used up or expired. Looking never
+approves anything.
+
+=cut
+
+sub requirements {
+  my ( $self, $view, $subject ) = @_;
+  return $self->policy->required( $view, $subject );
+}
+
+=method requirements
+
+    my $names = $airlock->requirements( $view, $subject );   # ['totp']
+
+The factor names this approval needs, so the page can ask for them.
+
+=cut
+
+sub approve {
+  my ( $self, $input, %arg ) = @_;
+  my $subject = $self->_subject( 'approve', $arg{subject} );
+  my $row     = $self->_pending($input);
+  return $self->_ok('approved') if !$row && $self->_approved_by( $input, $subject );
+  return $self->_miss($subject) unless $row;
+  my $now     = $self->_time;
+  return $self->_fail('reauth_required') unless $self->policy->fresh( $subject, $now );
+  my $proofs  = $arg{proofs} || {};
+  my @factors = map { $self->factor($_) } @{ $self->policy->required( $self->_view($row), $subject ) };
+  my @amr     = @{ $subject->{amr} || [] };
+  my @missing;
+  for my $factor (@factors) {
+    return $self->_fail( 'factor_unavailable', missing => [ $factor->name ] )
+      unless $factor->available_for($subject);
+    if ( $factor->needs_proof ) {
+      push @missing, $factor->name unless defined $proofs->{ $factor->name };
+      next;
+    }
+    return $self->_fail( 'reauth_required', missing => [ $factor->name ] ) unless $factor->verify($subject);
+    push @amr, $factor->amr;
+  }
+  return $self->_fail( 'factor_required', missing => \@missing ) if @missing;
+  for my $factor ( grep { $_->needs_proof } @factors ) {
+    return $self->_factor_failed( $row, $subject, $factor )
+      unless $factor->verify( $subject, $proofs->{ $factor->name } );
+    push @amr, $factor->amr;
+  }
+  my %seen;
+  my $approved = $self->store->{update}->( $row->{hash}, 'pending', {
+    state     => 'approved',
+    subject   => $subject->{id},
+    amr       => join( ' ', grep { !$seen{$_}++ } @amr ),
+    acr       => $subject->{acr},
+    auth_time => $subject->{auth_time} // $now,
+    approved  => $now
+  } );
+  return $self->_miss($subject) unless $approved;
+  $self->_emit( 'approved', client_id => $row->{client_id}, subject => $subject->{id} );
+  return $self->_ok('approved');
+}
+
+=method approve
+
+    my $result = $airlock->approve( $typed_code, subject => $subject, proofs => { totp => '123456' } );
+
+Approves a pending request on behalf of the subject, a hash with at least
+C<id> and optionally C<amr>, C<acr> and C<auth_time>. Approving a second time
+with the same subject, as a double click does, succeeds again. Fails with
+C<unknown_code>, C<reauth_required>, C<factor_unavailable>, C<factor_required>
+(C<missing> names what to ask for), C<factor_failed> or C<too_many_failures>.
+Croaks without a subject id.
+
+=cut
+
+sub deny {
+  my ( $self, $input, %arg ) = @_;
+  my $subject = $self->_subject( 'deny', $arg{subject} );
+  my $row     = $self->_pending($input) or return $self->_miss($subject);
+  my $denied  = $self->store->{update}->( $row->{hash}, 'pending', {
+    state     => 'denied',
+    user_code => undef,
+    subject   => $subject->{id}
+  } );
+  return $self->_miss($subject) unless $denied;
+  $self->_emit( 'denied', client_id => $row->{client_id}, subject => $subject->{id} );
+  return $self->_ok('denied');
+}
+
+=method deny
+
+    my $result = $airlock->deny( $typed_code, subject => $subject );
+
+Refuses a pending request. The client's next poll gets C<access_denied>.
+
+=cut
+
+sub redeem {
+  my ( $self, %arg ) = @_;
+  for (qw( device_code client_id )) {
+    return $self->_fail('invalid_request') unless defined $arg{$_} && length $arg{$_};
+  }
+  my $store = $self->store;
+  my $hash  = $self->code->hash( $arg{device_code} );
+  my $row   = $store->{find}->( 'hash', $hash );
+  return $self->_fail('invalid_grant')
+    unless $row && $row->{kind} eq 'request' && $row->{client_id} eq $arg{client_id};
+  my $now   = $self->_time;
+  my $state = $row->{state};
+  if ( ( $state eq 'pending' || $state eq 'approved' ) && $row->{expires} <= $now ) {
+    $store->{update}->( $hash, $state, { state => 'expired', user_code => undef } );
+    $state = 'expired';
+  }
+  return $self->_fail('expired_token') if $state eq 'expired';
+  return $self->_fail('access_denied') if $state eq 'denied';
+  return $self->_fail('invalid_grant') unless $state eq 'pending' || $state eq 'approved';
+  if ( defined $row->{last_poll} && $now - $row->{last_poll} < $row->{poll_interval} ) {
+    $store->{update}->( $hash, $state, { poll_interval => $row->{poll_interval} + 5, last_poll => $now } );
+    return $self->_fail('slow_down');
+  }
+  if ( $state eq 'pending' ) {
+    $store->{update}->( $hash, 'pending', { last_poll => $now } );
+    return $self->_fail('authorization_pending');
+  }
+  return $self->_fail('invalid_grant')
+    unless $store->{update}->( $hash, 'approved', { state => 'redeemed', user_code => undef, last_poll => $now } );
+  my $grant = {
+    subject   => $row->{subject},
+    client_id => $row->{client_id},
+    scope     => $row->{scope},
+    scopes    => [ split / /, $row->{scope} ],
+    amr       => [ split / /, $row->{amr} // '' ],
+    acr       => $row->{acr},
+    auth_time => $row->{auth_time}
+  };
+  my $token = $self->has_issuer ? $self->issuer->($grant) : $self->_issue_opaque( $grant, $now );
+  croak __PACKAGE__.'->redeem issuer must return a hash' unless ref $token eq 'HASH';
+  $self->_emit( 'redeemed', client_id => $row->{client_id}, subject => $row->{subject} );
+  return $self->_ok( 'granted', data => $token );
+}
+
+=method redeem
+
+    my $result = $airlock->redeem( device_code => $device_code, client_id => 'my-cli' );
+
+One poll of the client. Succeeds exactly once per approved request, with the
+token response in C<data>. Otherwise fails with C<authorization_pending>,
+C<slow_down>, C<access_denied>, C<expired_token>, C<invalid_grant> or
+C<invalid_request>. An exception from the issuer propagates; the request is
+used up by then.
+
+=cut
+
+sub verify_token {
+  my ( $self, $token ) = @_;
+  return unless defined $token && length $token;
+  my $row = $self->store->{find}->( 'hash', $self->code->hash($token) ) or return;
+  return unless $row->{kind} eq 'token' && $row->{state} eq 'active';
+  return unless $row->{expires} > $self->_time;
+  return {
+    subject   => $row->{subject},
+    client_id => $row->{client_id},
+    scope     => $row->{scope},
+    scopes    => [ split / /, $row->{scope} ],
+    amr       => [ split / /, $row->{amr} // '' ],
+    acr       => $row->{acr},
+    auth_time => $row->{auth_time},
+    expires   => $row->{expires}
+  };
+}
+
+=method verify_token
+
+    my $grant = $airlock->verify_token($bearer) or return unauthorized();
+
+For opaque tokens: the grant behind a token that is known, active and not
+expired, or nothing.
+
+=cut
+
+sub revoke_token {
+  my ( $self, $token ) = @_;
+  return 0 unless defined $token && length $token;
+  return $self->store->{update}->( $self->code->hash($token), 'active', { state => 'revoked' } ) ? 1 : 0;
+}
+
+=method revoke_token
+
+    $airlock->revoke_token($bearer);
+
+Ends an opaque token. Returns 1 when there was an active one.
+
+=cut
+
+sub purge {
+  my ( $self ) = @_;
+  my $purge = $self->store->{purge} or return 0;
+  return $purge->( $self->_time );
+}
+
+=method purge
+
+    my $removed = $airlock->purge;
+
+Removes expired requests and tokens through the store's C<purge> sub. Call it
+from a timer or a cron job.
+
+=cut
+
+sub _time { $_[0]->now->() }
+
+sub _ok {
+  my ( $self, $status, %arg ) = @_;
+  return Airlock::Result->new( ok => 1, status => $status, %arg );
+}
+
+sub _fail {
+  my ( $self, $status, %arg ) = @_;
+  return Airlock::Result->new( ok => 0, status => $status, %arg );
+}
+
+sub _miss {
+  my ( $self, $subject ) = @_;
+  $self->_emit( 'code_miss', subject => $subject ? $subject->{id} : undef );
+  return $self->_fail('unknown_code');
+}
+
+sub _emit {
+  my ( $self, $event, %data ) = @_;
+  return unless $self->has_on_event;
+  $self->on_event->( { event => $event, time => $self->_time, %data } );
+  return;
+}
+
+sub _clip {
+  my ( $self, $text, $max ) = @_;
+  return defined $text ? substr( $text, 0, $max ) : undef;
+}
+
+sub _subject {
+  my ( $self, $method, $subject ) = @_;
+  croak __PACKAGE__.'->'.$method.' needs a subject with an id'
+    unless ref $subject eq 'HASH' && defined $subject->{id} && length $subject->{id};
+  croak __PACKAGE__.'->'.$method.' subject id is longer than 255 characters' if length $subject->{id} > 255;
+  return $subject;
+}
+
+sub _free_user_code {
+  my ( $self, $now ) = @_;
+  for ( 1 .. 10 ) {
+    my $code = $self->code->user_code;
+    my $row  = $self->store->{find}->( 'user_code', $code ) or return $code;
+    next if $row->{expires} > $now;
+    $self->store->{update}->( $row->{hash}, $row->{state}, { state => 'expired', user_code => undef } );
+    return $code;
+  }
+  croak __PACKAGE__.'->open found no free user code';
+}
+
+sub _pending {
+  my ( $self, $input ) = @_;
+  my $code = $self->code->normalize($input) or return;
+  my $row  = $self->store->{find}->( 'user_code', $code ) or return;
+  return unless $row->{kind} eq 'request' && $row->{state} eq 'pending';
+  return $row if $row->{expires} > $self->_time;
+  $self->store->{update}->( $row->{hash}, 'pending', { state => 'expired', user_code => undef } );
+  return;
+}
+
+sub _approved_by {
+  my ( $self, $input, $subject ) = @_;
+  my $code = $self->code->normalize($input) or return 0;
+  my $row  = $self->store->{find}->( 'user_code', $code ) or return 0;
+  return 0 unless $row->{kind} eq 'request' && $row->{state} eq 'approved';
+  return 0 unless $row->{expires} > $self->_time;
+  return $row->{subject} eq $subject->{id} ? 1 : 0;
+}
+
+sub _view {
+  my ( $self, $row ) = @_;
+  my $client = $self->client( $row->{client_id} ) || { name => $row->{client_id} };
+  my $now    = $self->_time;
+  return {
+    user_code   => $self->code->display( $row->{user_code} ),
+    client_id   => $row->{client_id},
+    client_name => $client->{name},
+    scopes      => [ split / /, $row->{scope} ],
+    origin      => { ip => $row->{origin_ip}, ua => $row->{origin_ua} },
+    created     => $row->{created},
+    age         => $now - $row->{created},
+    expires_in  => $row->{expires} - $now
+  };
+}
+
+sub _factor_failed {
+  my ( $self, $row, $subject, $factor ) = @_;
+  my $failures = ( $row->{factor_failures} || 0 ) + 1;
+  my $final    = $failures >= $self->max_factor_failures;
+  $self->store->{update}->( $row->{hash}, 'pending', {
+    factor_failures => $failures,
+    $final ? ( state => 'denied', user_code => undef ) : ()
+  } );
+  $self->_emit( 'factor_failed', client_id => $row->{client_id}, subject => $subject->{id}, factor => $factor->name );
+  return $self->_fail( $final ? 'too_many_failures' : 'factor_failed', missing => [ $factor->name ] );
+}
+
+sub _issue_opaque {
+  my ( $self, $grant, $now ) = @_;
+  my $token = $self->code->secret;
+  $self->store->{insert}->( {
+    hash            => $self->code->hash($token),
+    kind            => 'token',
+    user_code       => undef,
+    client_id       => $grant->{client_id},
+    scope           => $grant->{scope},
+    state           => 'active',
+    created         => $now,
+    expires         => $now + $self->token_ttl,
+    poll_interval   => undef,
+    last_poll       => undef,
+    subject         => $grant->{subject},
+    amr             => join( ' ', @{ $grant->{amr} } ),
+    acr             => $grant->{acr},
+    auth_time       => $grant->{auth_time},
+    approved        => undef,
+    origin_ip       => undef,
+    origin_ua       => undef,
+    factor_failures => 0
+  } );
+  return {
+    access_token => $token,
+    token_type   => 'Bearer',
+    expires_in   => $self->token_ttl,
+    scope        => $grant->{scope}
+  };
+}
+
+1;

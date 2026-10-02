@@ -12,6 +12,7 @@ for (qw(
   Airlock::Factor::Upstream
   Airlock::Policy
   Airlock::QR
+  Airlock::Result
   Airlock::Store::Memory
   Airlock::Test::Store
 )) {
