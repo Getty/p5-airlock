@@ -9,7 +9,21 @@
       "directAccessGrantsEnabled": true,
       "attributes": {
         "oauth2.device.authorization.grant.enabled": "true"
-      }
+      },
+      "protocolMappers": [
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -21,7 +35,11 @@
       "firstName": "Plain",
       "lastName": "User",
       "credentials": [
-        { "type": "password", "value": "plain-password", "temporary": false }
+        {
+          "type": "password",
+          "value": "plain-password",
+          "temporary": false
+        }
       ]
     },
     {
@@ -32,7 +50,11 @@
       "firstName": "Otp",
       "lastName": "User",
       "credentials": [
-        { "type": "password", "value": "otp-password", "temporary": false },
+        {
+          "type": "password",
+          "value": "otp-password",
+          "temporary": false
+        },
         {
           "type": "otp",
           "secretData": "{\"value\":\"12345678901234567890\"}",

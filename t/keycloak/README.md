@@ -36,38 +36,56 @@ docker run --rm --name airlock-keycloak -p 8080:8080 \
 Keycloak needs about 1 GB of memory. Do not start it on a machine that is
 already short of it.
 
+## Make the realm report how someone logged in
+
+```bash
+perl t/keycloak/setup.pl http://localhost:8080
+```
+
+A default realm puts no `amr` into its tokens. Two things change that. The
+client needs the AMR protocol mapper; that is part of `realm.json`. And each
+step of the authentication flows needs a reference value, which `setup.pl` sets
+through the Admin REST API: `pwd` on the password steps and `otp` on the OTP
+steps of the `browser` and `direct grant` flows. The script can be run again at
+any time; a restarted pod has lost the setting and needs it again.
+
 ## Run
 
 ```bash
 TEST_AIRLOCK_KEYCLOAK_URL=http://localhost:8080 prove -lv t/90-live-keycloak.t
 ```
 
+The test starts a device flow with `Airlock::Client`, logs in the way a browser
+would (login form, one-time code, consent), and reads the claims of the token
+the client receives. It needs `HTTP::CookieJar`. Keycloak accepts a one-time
+code once; when two runs fall into the same 30 seconds the test waits for the
+next code, so a run can take half a minute.
+
 ## Findings
 
-Recorded by whoever ran the test last. The `diag` lines of the test print
-what to copy here.
+Keycloak 26.8.0, recorded 2026-10-02.
 
-| Keycloak version | Login | acr | amr | auth_time |
+| Realm | Login | acr | amr | auth_time |
 |---|---|---|---|---|
-| 26.8.0 | `plain`, direct grant, password | `1` | absent | absent |
-| 26.8.0 | `otp`, direct grant, password + TOTP | `1` | absent | absent |
+| as imported, before `setup.pl` and without the AMR mapper | direct grant, password | `1` | absent | absent |
+| as imported, before `setup.pl` and without the AMR mapper | direct grant, password + TOTP | `1` | absent | absent |
+| with mapper and reference values | device flow, browser login, password | `1` | `pwd` | time of login |
+| with mapper and reference values | device flow, browser login, password + TOTP | `1` | `pwd`, `otp` | time of login |
+| with mapper and reference values | direct grant, password + TOTP | `1` | `pwd`, `otp` | absent |
 
-Recorded 2026-10-02 against the realm in `realm.json`, identical in ID token and
-access token.
-
-What this run established:
+What the runs established:
 
 - `realm.json` imports as written, including the OTP credential.
-- `Airlock::Client` runs against Keycloak's device authorization endpoint:
-  discovery, start, and polling answered with `authorization_pending`. The
+- `Airlock::Client` completes a device flow against Keycloak: discovery, start,
+  `authorization_pending` while waiting, and the token after the approval. The
   device response carries `verification_uri_complete`.
-- The direct grant takes the `totp` parameter, and Keycloak enforces it: the
-  user `otp` without it gets `invalid_grant`.
 - **A default realm does not say in the token whether a second factor was
-  used.** Both logins carry `acr=1` and no `amr`. `Airlock::Factor::Upstream`
-  therefore cannot recognise a Keycloak second factor until the realm is
-  configured to report one: an `amr` protocol mapper with reference values on
-  the authenticators, or step-up authentication with an ACR-to-LoA mapping.
-  The last assertion of the live test is marked TODO for that reason.
-- A direct grant carries no `auth_time`. Freshness (`max_age`) can only be
-  tested with a browser login.
+  used.** With the AMR mapper and the reference values it does, and
+  `Airlock::Factor::Upstream` with its default `accept_amr` then tells the two
+  logins apart. `acr` stays `1` either way and is of no use here.
+- `auth_time` is only present after a browser login, not after a direct grant.
+- The reference values carry a maximum age (`default.reference.maxAge`, set to
+  3600 seconds by `setup.pl`); a step older than that drops out of `amr`.
+- Keycloak accepts a TOTP code once per time step, also across logins.
+- The form the consent page posts to is a path without host, unlike the forms
+  of the login pages.

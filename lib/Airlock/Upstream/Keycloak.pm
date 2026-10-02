@@ -32,10 +32,27 @@ factor.
 
 A Keycloak realm in its default configuration does not report a second factor
 in the token: with Keycloak 26.8.0 a password login and a login with TOTP both
-carry C<acr=1> and no C<amr>. The factor built here holds only once the realm
-is configured to report one, through an C<amr> protocol mapper or through
-step-up authentication with its own C<acr> values, and L</mfa_amr> or
-L</mfa_acr> name what it reports.
+carry C<acr=1> and no C<amr>. Two settings change that:
+
+=over 4
+
+=item *
+
+the client, or a client scope it uses, has the protocol mapper
+I<Authentication Method Reference (AMR)> (C<oidc-amr-mapper>);
+
+=item *
+
+the steps of the authentication flow carry a reference value
+(C<default.reference.value>, with C<default.reference.maxAge>), for example
+C<pwd> on the password form and C<otp> on the OTP form.
+
+=back
+
+A login with TOTP then carries C<< amr => [ 'pwd', 'otp' ] >>, which the
+default L</mfa_amr> recognises. F<t/keycloak/setup.pl> in the distribution does
+the second part through the Admin REST API, and F<t/90-live-keycloak.t> checks
+the whole chain against a running Keycloak.
 
 =cut
 

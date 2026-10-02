@@ -4,6 +4,7 @@
 #   kubectl create namespace airlock-test
 #   kubectl -n airlock-test create configmap airlock-realm --from-file=realm.json=t/keycloak/realm.json
 #   kubectl -n airlock-test apply -f t/keycloak/k8s.yaml
+#   perl t/keycloak/setup.pl http://<node>:<nodeport>     (again after every pod restart)
 #   ...
 #   kubectl delete namespace airlock-test
 apiVersion: apps/v1

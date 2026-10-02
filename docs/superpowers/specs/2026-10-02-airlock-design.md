@@ -348,10 +348,13 @@ Nach dem unabhängigen Review und dem ersten Live-Lauf gegen Keycloak kamen dazu
   kann eine verlorene Wettlauf-Situation durch einen falschen Rückgabewert melden.
 - **Ein leerer Nachweis gilt als fehlend,** nicht als Fehlversuch.
 - **`auth_time` wird nicht erfunden.** Bringt das Subject keines mit, hat der Grant keines.
-- **Keycloak-Befund (26.8.0, Standard-Realm):** Passwort-Login und Login mit TOTP tragen
-  beide `acr=1` und kein `amr`. Punkt A aus Abschnitt 7 funktioniert deshalb erst, wenn der
-  Realm so konfiguriert ist, dass er den zweiten Faktor meldet. Punkt B ist bestätigt:
-  `Airlock::Client` läuft gegen Keycloaks Device-Endpunkt. Details in `t/keycloak/README.md`.
+- **Keycloak-Befund (26.8.0):** Im Standard-Realm tragen Passwort-Login und Login mit TOTP
+  beide `acr=1` und kein `amr`. Mit dem AMR-Protocol-Mapper am Client und Referenzwerten
+  an den Schritten der Authentication-Flows (`t/keycloak/setup.pl`) meldet Keycloak
+  `amr=pwd` beziehungsweise `amr=pwd,otp`, und `Airlock::Factor::Upstream` unterscheidet
+  die Logins. Punkt A und Punkt B aus Abschnitt 7 sind damit live bestätigt: Der Test
+  fährt einen vollständigen Device-Flow mit Browser-Login gegen Keycloak. Details in
+  `t/keycloak/README.md`.
 
 Die Policy ist eine eigene Klasse `Airlock::Policy`; ein Hash wird beim Konstruieren
 umgewandelt. Ergebnisse sind `Airlock::Result`-Objekte mit `ok`, `status`, `data`,

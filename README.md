@@ -98,8 +98,9 @@ and wrong under a preforking server; it croaks when used across a fork.
 | `Airlock::Factor::Upstream` | the identity provider already checked one (`amr`, `acr`, `auth_time`) |
 
 `Airlock::Upstream::Keycloak` turns Keycloak token claims into a subject. A
-default Keycloak realm does not report a second factor in its tokens; see
-`t/keycloak/README.md` for what was observed.
+default Keycloak realm does not report a second factor in its tokens; it does
+once the client has the AMR mapper and the flow steps carry reference values.
+`t/keycloak/` has the realm, the setup script and what was observed.
 
 ## QR codes
 
