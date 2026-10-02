@@ -1,0 +1,27 @@
+---
+claimed_at: 2026-10-02T21:12:11Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T21:11:45Z
+created: 2026-10-02T19:24:52Z
+depends_on:
+- 6
+- 4
+id: 7
+priority: medium
+started: 2026-10-02T20:37:01Z
+status: done
+tags:
+- keycloak
+- live
+title: 'Keycloak: Upstream mapping and live test'
+updated: 2026-10-02T21:12:11Z
+---
+
+t/90-live-keycloak.t behind TEST_AIRLOCK_KEYCLOAK_URL; realm import JSON in t/keycloak/ (client with device flow, user with TOTP). Establish acr/amr from a real token and record it in Airlock::Upstream::Keycloak. Client must pass against Keycloak's device endpoint. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 7.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 9. Needs a running Keycloak; where it runs is the maintainer's decision. realm.json and the mfa defaults are unverified assumptions.
+
+ Mapping, realm, k8s manifest and live test committed. Live run against Keycloak 26.8.0 (namespace airlock-test on cihq): client works against the device endpoint; a default realm reports acr=1 and no amr for both logins, so the upstream factor cannot hold yet. Open: realm configuration that reports the second factor (amr mapper or LoA step-up), and a browser login for auth_time.
+
+ Resolved in 086ff2f: AMR mapper in realm.json plus reference values via t/keycloak/setup.pl; live test runs the whole device flow with browser login against Keycloak 26.8.0 and passes.
