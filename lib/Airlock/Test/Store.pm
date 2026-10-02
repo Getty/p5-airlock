@@ -27,7 +27,8 @@ our $VERSION = '0.001';
 
 Whoever writes the four store subs for L<Airlock> runs this suite against them.
 It checks what Airlock relies on: rows come back as they went in, a secret or a
-user code is unique, C<update> only fires from the expected state, and C<purge>
+user code is unique, C<update> only fires from the expected state and adds
+where it is given a reference to a number, and C<purge>
 removes what has expired and nothing else.
 
 The suite inserts rows whose C<hash> starts with C<airlock-test->. Run it against
@@ -131,6 +132,13 @@ sub run {
     is( $polled->{last_poll}, 1010, 'last_poll written' );
     is( $polled->{poll_interval}, 10, 'poll_interval written' );
     is( $polled->{state}, 'pending', 'state still pending' );
+    ok( $store->{update}->( 'airlock-test-1', 'pending', { factor_failures => \1 } ), 'increment: applied' );
+    ok( $store->{update}->( 'airlock-test-1', 'pending', { factor_failures => \1, poll_interval => \5 } ), 'two increments at once: applied' );
+    my $counted = $store->{find}->( 'hash', 'airlock-test-1' );
+    is( $counted->{factor_failures}, 2,  'a reference to a number is added, not stored' );
+    is( $counted->{poll_interval},   15, 'for any numeric field' );
+    ok( !$store->{update}->( 'airlock-test-1', 'approved', { factor_failures => \1 } ), 'increment from the wrong state: refused' );
+    is( $store->{find}->( 'hash', 'airlock-test-1' )->{factor_failures}, 2, 'and not counted' );
     ok(
       $store->{update}->( 'airlock-test-1', 'pending', {
         state => 'approved', user_code => undef, subject => 'alice', amr => 'pwd otp', auth_time => 1005, approved => 1020

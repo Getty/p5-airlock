@@ -21,7 +21,7 @@ my $approve = sub {
   my ( $env ) = @_;
   my $request = Plack::Request->new($env);
   my $param   = $request->method eq 'POST' ? $request->body_parameters : $request->query_parameters;
-  my ( $status, $html ) = $demo->page( map { $_ => scalar $param->get($_) } qw( user_code action pin ) );
+  my ( $status, $html ) = $demo->page( method => $request->method, map { $_ => scalar $param->get($_) } qw( user_code action pin ) );
   return [ $status, [ 'Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store' ], [$html] ];
 };
 

@@ -43,6 +43,8 @@ subtest 'max_auth_age' => sub {
   is( $policy->fresh( { auth_time => 700 }, 1000 ), 1, 'exactly at the limit' );
   is( $policy->fresh( { auth_time => 699 }, 1000 ), 0, 'one second over' );
   is( $policy->fresh( {}, 1000 ),                   0, 'no auth_time counts as too old' );
+  is( $policy->fresh( { auth_time => 1060 }, 1000 ), 1, 'a minute in the future is clock drift' );
+  is( $policy->fresh( { auth_time => 1061 }, 1000 ), 0, 'further in the future is not a login' );
 };
 
 done_testing;

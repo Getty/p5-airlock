@@ -95,7 +95,10 @@ sub update {
   $self->_same_process;
   my $row = $self->_rows->{$hash} or return 0;
   return 0 unless $row->{state} eq $from_state;
-  $row->{$_} = $changes->{$_} for keys %$changes;
+  for my $field ( keys %$changes ) {
+    my $value = $changes->{$field};
+    $row->{$field} = ref $value eq 'SCALAR' ? ( $row->{$field} // 0 ) + $$value : $value;
+  }
   return 1;
 }
 
@@ -104,7 +107,8 @@ sub update {
     $memory->update( $hash, 'pending', { state => 'approved' } ) or return;
 
 Applies the changes only if the row is still in C<$from_state>. Returns true
-when it did. This condition is what makes redeeming a request happen once.
+when it did. A value that is a reference to a number is added to the field
+instead of replacing it: C<< { factor_failures => \1 } >>. This condition is what makes redeeming a request happen once.
 
 =cut
 

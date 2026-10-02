@@ -78,4 +78,15 @@ subtest 'qr' => sub {
   is( $test->request( GET '/qr.svg?user_code=ZZZZ-ZZZZ' )->code, 404, 'no QR code for an unknown code' );
 };
 
+subtest 'opening a link never approves or denies' => sub {
+  my $start = start('read');
+  my $get   = $test->request( GET '/approve?action=approve&user_code='.$start->{user_code} );
+  is( $get->code, 200, 'the page is shown' );
+  unlike( $get->content, qr/Approved/, 'but nothing is approved' );
+  is( poll($start)->{error}, 'authorization_pending', 'the device keeps waiting' );
+  unlike( $test->request( GET '/approve?action=deny&user_code='.$start->{user_code} )->content, qr/Denied/, 'nor denied by a link' );
+  my $mixed = $test->request( POST '/approve?action=approve&user_code='.$start->{user_code}, [] );
+  unlike( $mixed->content, qr/Approved/, 'an action in the query string of a POST does not count either' );
+};
+
 done_testing;

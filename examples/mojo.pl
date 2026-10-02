@@ -26,7 +26,8 @@ post '/airlock/:route' => [ route => [qw( device token )] ] => sub {
 
 any [qw( GET POST )] => '/approve' => sub {
   my ( $c ) = @_;
-  my ( $status, $html ) = $demo->page( map { $_ => scalar $c->param($_) } qw( user_code action pin ) );
+  my $param = $c->req->method eq 'POST' ? $c->req->body_params : $c->req->query_params;
+  my ( $status, $html ) = $demo->page( method => $c->req->method, map { $_ => scalar $param->param($_) } qw( user_code action pin ) );
   $c->res->headers->cache_control('no-store');
   $c->render( data => $html, format => 'html', status => $status );
 };

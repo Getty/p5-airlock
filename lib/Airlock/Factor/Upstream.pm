@@ -85,6 +85,8 @@ Coderef returning the current epoch. For tests.
 
 =cut
 
+sub clock_skew { 60 }
+
 sub needs_proof { 0 }
 
 sub verify {
@@ -95,7 +97,8 @@ sub verify {
   return 0 unless $strong;
   return 1 unless $self->has_max_age;
   return 0 unless defined $subject->{auth_time};
-  return $self->now->() - $subject->{auth_time} <= $self->max_age ? 1 : 0;
+  my $age = $self->now->() - $subject->{auth_time};
+  return $age >= -$self->clock_skew && $age <= $self->max_age ? 1 : 0;
 }
 
 sub reauth_params {

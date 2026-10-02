@@ -106,6 +106,10 @@ subtest 'to_app' => sub {
   is( ( psgi( $app, path => '/device', body => 'client_id=cli&pad='.( 'x' x 20000 ) ) )[0], 413, 'a body over the limit is refused unread' );
   is( ( psgi( $app, path => '/device', body => 'client_id=cli', length => 100 ) )[0], 200, 'a body shorter than its Content-Length does not hang' );
   is( ( psgi( $app, path => '/device', body => '', length => 0 ) )[0], 400, 'an empty body' );
+  for my $bad ( '13abc', 'abc', '-1', '1.5', ' 13' ) {
+    is_deeply( [ ( psgi( $app, path => '/device', body => 'client_id=cli', length => $bad ) )[ 0, 2 ] ], [ 400, { error => 'invalid_request' } ], 'Content-Length "'.$bad.'" is refused' );
+  }
+  is( ( psgi( $app, path => '/device', body => 'client_id=cli', length => undef ) )[0], 400, 'no Content-Length reads no body' );
 };
 
 done_testing;

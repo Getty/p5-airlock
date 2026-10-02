@@ -51,9 +51,11 @@ sub update {
   my %known  = map { $_ => 1 } $self->_fields;
   my @fields = sort keys %$changes;
   croak __PACKAGE__.'->update unknown field' if grep { !$known{$_} } @fields;
+  # a reference to a number means "add it", done by the database in one statement
+  my @set = map { ref $changes->{$_} eq 'SCALAR' ? $_.' = '.$_.' + ?' : $_.' = ?' } @fields;
   my $changed = $self->_dbh->do(
-    'UPDATE '.$self->table.' SET '.join( ', ', map { $_.' = ?' } @fields ).' WHERE hash = ? AND state = ?',
-    undef, @{$changes}{@fields}, $hash, $from_state
+    'UPDATE '.$self->table.' SET '.join( ', ', @set ).' WHERE hash = ? AND state = ?',
+    undef, ( map { ref eq 'SCALAR' ? $$_ : $_ } @{$changes}{@fields} ), $hash, $from_state
   );
   return $changed > 0 ? 1 : 0;
 }

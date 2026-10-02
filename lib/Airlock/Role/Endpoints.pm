@@ -110,7 +110,9 @@ sub to_app {
   my ( $self ) = @_;
   return sub {
     my ( $env ) = @_;
-    my $length = $env->{CONTENT_LENGTH} || 0;
+    my $length = $env->{CONTENT_LENGTH} // '';
+    $length = 0 unless length $length;
+    return $self->_psgi( $self->_reply( 400, { error => 'invalid_request' } ) ) unless $length =~ /\A[0-9]+\z/;
     return $self->_psgi( $self->_reply( 413, { error => 'invalid_request' } ) ) if $length > $self->max_body;
     my $body = '';
     if ( $length && ( $env->{CONTENT_TYPE} // '' ) =~ m{\Aapplication/x-www-form-urlencoded\b}i ) {

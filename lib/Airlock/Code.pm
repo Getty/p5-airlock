@@ -101,6 +101,7 @@ A new random secret as hex. Used for device codes and opaque tokens.
 
 sub hash {
   my ( $self, $value ) = @_;
+  utf8::encode($value) if utf8::is_utf8($value);
   return sha256_hex($value);
 }
 

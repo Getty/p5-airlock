@@ -25,6 +25,9 @@ $t->post_ok( '/airlock/device' => { 'Content-Type' => 'application/x-www-form-ur
 $t->get_ok( '/approve' => form => { user_code => $start->{user_code} } )
   ->status_is(200)->content_like(qr/Demo CLI/)->content_like(qr/name="pin"/);
 
+$t->get_ok( '/approve' => form => { user_code => $start->{user_code}, action => 'approve', pin => '4711' } )
+  ->status_is(200)->content_unlike( qr/Approved/, 'opening a link approves nothing' );
+
 $t->post_ok( '/approve' => form => { user_code => $start->{user_code}, action => 'approve', pin => '4711' } )
   ->status_is(200)->content_like(qr/Approved/);
 

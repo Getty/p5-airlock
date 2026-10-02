@@ -50,7 +50,11 @@ sub page {
   my $code    = $param{user_code} // '';
   return ( 200, $self->_form('') ) unless length $code;
 
-  if ( ( $param{action} // '' ) eq 'deny' ) {
+  # Opening a link must never approve or deny anything: the action only counts
+  # when it arrives in the body of a POST.
+  my $action = ( $param{method} // '' ) eq 'POST' ? $param{action} // '' : '';
+
+  if ( $action eq 'deny' ) {
     my $denied = $airlock->deny( $code, subject => $subject );
     return $denied->ok ? ( 200, '<p>Denied. You can close this window.</p>' ) : ( 404, $self->_form('That code is unknown or has expired.') );
   }
@@ -58,7 +62,7 @@ sub page {
   my $view = $airlock->inspect( $code, subject => $subject )
     or return ( 404, $self->_form('That code is unknown or has expired.') );
   my $needs = $airlock->requirements( $view, $subject );
-  return ( 200, $self->_confirm( $view, $needs, '' ) ) unless ( $param{action} // '' ) eq 'approve';
+  return ( 200, $self->_confirm( $view, $needs, '' ) ) unless $action eq 'approve';
 
   my $result = $airlock->approve( $code, subject => $subject, proofs => { pin => $param{pin} } );
   return ( 200, '<p>Approved. You can close this window.</p>' ) if $result->ok;

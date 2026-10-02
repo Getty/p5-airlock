@@ -61,6 +61,8 @@ subtest 'upstream' => sub {
   is( $fresh->verify( { id => 'a', amr => ['otp'], auth_time => 9_699 } ), 0, 'one second too old' );
   is( $fresh->verify( { id => 'a', amr => ['otp'] } ),                     0, 'no auth_time counts as too old' );
   is( $fresh->verify( { id => 'a', amr => ['pwd'], auth_time => 9_999 } ), 0, 'fresh but weak' );
+  is( $fresh->verify( { id => 'a', amr => ['otp'], auth_time => 10_060 } ), 1, 'a minute in the future is clock drift' );
+  is( $fresh->verify( { id => 'a', amr => ['otp'], auth_time => 10_061 } ), 0, 'further in the future is not a login' );
 };
 
 done_testing;

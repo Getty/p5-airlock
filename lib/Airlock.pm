@@ -84,6 +84,8 @@ sub _build_store { Airlock::Store::Memory->new->as_subs }
 =attr store
 
 Hash of four coderefs: C<insert>, C<find>, C<update> and optionally C<purge>.
+In the changes given to C<update>, a reference to a number means "add this to
+the column", which the store has to do atomically.
 The contract is documented in L<Airlock::Store::Memory> and checked by
 L<Airlock::Test::Store>. Default: an in-process store.
 
@@ -292,7 +294,10 @@ sub open {
   my $now         = $self->_time;
   my $device_code = $self->code->secret;
   my $user_code   = $self->_free_user_code($now);
-  my $origin      = $arg{origin} || {};
+  my $origin      = {
+    ip => $self->_clip( $arg{origin}{ip}, 64 ),
+    ua => $self->_clip( $arg{origin}{ua}, 255 )
+  };
   $self->store->{insert}->( {
     hash            => $self->code->hash($device_code),
     kind            => 'request',
@@ -309,8 +314,8 @@ sub open {
     acr             => undef,
     auth_time       => undef,
     approved        => undef,
-    origin_ip       => $self->_clip( $origin->{ip}, 64 ),
-    origin_ua       => $self->_clip( $origin->{ua}, 255 ),
+    origin_ip       => $origin->{ip},
+    origin_ua       => $origin->{ua},
     factor_failures => 0
   } );
   $self->_emit( 'opened', client_id => $client->{id}, origin => $origin );
@@ -383,16 +388,22 @@ sub approve {
     return $self->_fail( 'factor_unavailable', missing => [ $factor->name ] )
       unless $factor->available_for($subject);
     if ( $factor->needs_proof ) {
-      push @missing, $factor->name unless defined $proofs->{ $factor->name };
+      my $proof = $proofs->{ $factor->name };
+      push @missing, $factor->name unless defined $proof && length $proof;
       next;
     }
     return $self->_fail( 'reauth_required', missing => [ $factor->name ] ) unless $factor->verify($subject);
     push @amr, $factor->amr;
   }
   return $self->_fail( 'factor_required', missing => \@missing ) if @missing;
-  for my $factor ( grep { $_->needs_proof } @factors ) {
+  my @proven = grep { $_->needs_proof } @factors;
+  for my $factor (@proven) {
     return $self->_factor_failed( $row, $subject, $factor )
       unless $factor->verify( $subject, $proofs->{ $factor->name } );
+  }
+  for my $factor (@proven) {
+    return $self->_factor_failed( $row, $subject, $factor )
+      unless $factor->commit( $subject, $proofs->{ $factor->name } );
     push @amr, $factor->amr;
   }
   my %seen;
@@ -401,7 +412,7 @@ sub approve {
     subject   => $subject->{id},
     amr       => join( ' ', grep { !$seen{$_}++ } @amr ),
     acr       => $subject->{acr},
-    auth_time => $subject->{auth_time} // $now,
+    auth_time => $subject->{auth_time},
     approved  => $now
   } );
   return $self->_miss($subject) unless $approved;
@@ -414,7 +425,8 @@ sub approve {
     my $result = $airlock->approve( $typed_code, subject => $subject, proofs => { totp => '123456' } );
 
 Approves a pending request on behalf of the subject, a hash with at least
-C<id> and optionally C<amr>, C<acr> and C<auth_time>. Approving a second time
+C<id> and optionally C<amr>, C<acr> and C<auth_time>. An empty proof counts as
+no proof. Approving a second time
 with the same subject, as a double click does, succeeds again. Fails with
 C<unknown_code>, C<reauth_required>, C<factor_unavailable>, C<factor_required>
 (C<missing> names what to ask for), C<factor_failed> or C<too_many_failures>.
@@ -464,7 +476,7 @@ sub redeem {
   return $self->_fail('access_denied') if $state eq 'denied';
   return $self->_fail('invalid_grant') unless $state eq 'pending' || $state eq 'approved';
   if ( defined $row->{last_poll} && $now - $row->{last_poll} < $row->{poll_interval} ) {
-    $store->{update}->( $hash, $state, { poll_interval => $row->{poll_interval} + 5, last_poll => $now } );
+    $store->{update}->( $hash, $state, { poll_interval => \5, last_poll => $now } );
     return $self->_fail('slow_down');
   }
   if ( $state eq 'pending' ) {
@@ -643,12 +655,13 @@ sub _view {
 
 sub _factor_failed {
   my ( $self, $row, $subject, $factor ) = @_;
-  my $failures = ( $row->{factor_failures} || 0 ) + 1;
-  my $final    = $failures >= $self->max_factor_failures;
-  $self->store->{update}->( $row->{hash}, 'pending', {
-    factor_failures => $failures,
-    $final ? ( state => 'denied', user_code => undef ) : ()
-  } );
+  my $store = $self->store;
+  # counted in the store, not from the row read earlier: parallel wrong guesses
+  # must each count
+  $store->{update}->( $row->{hash}, 'pending', { factor_failures => \1 } );
+  my $current = $store->{find}->( 'hash', $row->{hash} );
+  my $final   = $current && $current->{factor_failures} >= $self->max_factor_failures;
+  $store->{update}->( $row->{hash}, 'pending', { state => 'denied', user_code => undef } ) if $final;
   $self->_emit( 'factor_failed', client_id => $row->{client_id}, subject => $subject->{id}, factor => $factor->name );
   return $self->_fail( $final ? 'too_many_failures' : 'factor_failed', missing => [ $factor->name ] );
 }

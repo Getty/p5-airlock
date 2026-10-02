@@ -103,11 +103,12 @@ has ua => (
   isa => InstanceOf['HTTP::Tiny']
 );
 
-sub _build_ua { HTTP::Tiny->new( agent => 'Airlock-Client/'.$VERSION, timeout => 30 ) }
+sub _build_ua { HTTP::Tiny->new( agent => 'Airlock-Client/'.$VERSION, timeout => 30, verify_SSL => 1 ) }
 
 =attr ua
 
-The L<HTTP::Tiny> to use. HTTPS needs L<IO::Socket::SSL>.
+The L<HTTP::Tiny> to use. The default verifies TLS certificates. HTTPS needs
+L<IO::Socket::SSL>.
 
 =cut
 
@@ -170,6 +171,8 @@ sub _build__discovery {
     unless $response->{success};
   my $data = $self->_decode($response);
   croak __PACKAGE__.' discovery returned no JSON object for '.$url unless %$data;
+  croak __PACKAGE__.' discovery is for another issuer: '.$self->_printable( $data->{issuer} // '(none)' )
+    unless ( $data->{issuer} // '' ) =~ s{/+\z}{}r eq $self->issuer =~ s{/+\z}{}r;
   return $data;
 }
 
@@ -206,8 +209,8 @@ sub poll {
   my ( $self, $start ) = @_;
   my $interval = $self->_seconds( $start->{interval}, 5 );
   my $deadline = $self->now->() + $self->_seconds( $start->{expires_in}, 600 );
-  while ( $self->now->() < $deadline ) {
-    $self->sleep->($interval);
+  while ( ( my $left = $deadline - $self->now->() ) > 0 ) {
+    $self->sleep->( $interval < $left ? $interval : $left );
     my $response = $self->_post( $self->token_endpoint, {
       grant_type  => $self->device_grant_type,
       device_code => $start->{device_code},
@@ -217,7 +220,7 @@ sub poll {
     return $data if $response->{success} && defined $data->{access_token};
     my $error = $data->{error} // '';
     next if $error eq 'authorization_pending';
-    if ( $error eq 'slow_down' ) {
+    if ( $error eq 'slow_down' || $response->{status} == 599 ) {
       $interval += 5;
       next;
     }
@@ -230,8 +233,9 @@ sub poll {
 
     my $token = $client->poll($start);
 
-Waits for the approval. Sleeps the interval the server asked for, adds five
-seconds on every C<slow_down>, and returns the token response. Croaks on
+Waits for the approval. Sleeps the interval the server asked for, never past
+the lifetime of the code, adds five seconds on every C<slow_down> and on every
+connection failure, and returns the token response. Croaks on
 C<access_denied>, C<expired_token>, any other error, and when the code's
 lifetime runs out.
 
@@ -254,7 +258,8 @@ L</start>, the prompt, then L</poll>.
 
 sub prompt_text {
   my ( $self, $start, %arg ) = @_;
-  my $text = 'Open '.$start->{verification_uri}.' and enter the code '.$start->{user_code}."\n";
+  my $text = 'Open '.$self->_printable( $start->{verification_uri} ).' and enter the code '
+    .$self->_printable( $start->{user_code} )."\n";
   return $text unless defined $start->{verification_uri_complete};
   return $text.'Or scan:'."\n".Airlock::QR->new( text => $start->{verification_uri_complete}, quiet => 2 )->terminal(%arg);
 }
@@ -276,6 +281,14 @@ sub _seconds {
   my ( $self, $value, $default ) = @_;
   return $default unless defined $value && !ref $value && $value =~ /\A[0-9]{1,9}\z/ && $value > 0;
   return $value + 0;
+}
+
+# What the server sent goes to a terminal: nothing but printable ASCII.
+sub _printable {
+  my ( $self, $text ) = @_;
+  $text //= '';
+  $text =~ s/[^\x20-\x7E]/?/g;
+  return $text;
 }
 
 sub _post {

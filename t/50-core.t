@@ -268,7 +268,7 @@ subtest 'events carry no secrets' => sub {
   my $token = $t->airlock->redeem( device_code => $data->{device_code}, client_id => 'cli' )->data->{access_token};
   my $plain = $data->{user_code} =~ s/-//r;
   for my $event ( @{ $t->events } ) {
-    my $dump = join ' ', map { ref $_ ? %$_ : $_ // '' } %$event;
+    my $dump = join ' ', map { $_ // '' } map { ref $_ ? %$_ : $_ } %$event;
     unlike( $dump, qr/\Q$data->{device_code}\E|\Q$data->{user_code}\E|\Q$plain\E|\Q$token\E|ZZZZ/, $event->{event}.' is clean' );
   }
 };
@@ -321,6 +321,31 @@ subtest 'a subject id that does not fit' => sub {
   ok( !eval { $t->airlock->approve( $data->{user_code}, subject => { id => 'x' x 256 } ); 1 }, 'croaks' );
   like( $@, qr/subject id is longer than 255 characters/, 'and says why' );
   ok( $t->airlock->approve( $data->{user_code}, subject => { id => 'x' x 255 } )->ok, '255 characters fit' );
+};
+
+subtest 'the grant says only what the subject said' => sub {
+  my $t    = AirlockTest->new;
+  my $data = $t->start;
+  $t->airlock->approve( $data->{user_code}, subject => { id => 'alice' } );
+  my $token = $t->airlock->redeem( device_code => $data->{device_code}, client_id => 'cli' )->data->{access_token};
+  my $grant = $t->airlock->verify_token($token);
+  is( $grant->{auth_time}, undef, 'no auth_time is invented for a subject that brought none' );
+  is_deeply( $grant->{amr}, [], 'nor an amr' );
+};
+
+subtest 'text outside ASCII where a secret is expected' => sub {
+  my $t = AirlockTest->new;
+  is( $t->airlock->redeem( device_code => "\x{263A}", client_id => 'cli' )->status, 'invalid_grant', 'a wide character as device code is just unknown' );
+  is( $t->airlock->verify_token("\x{263A}\x{1F600}"), undef, 'and as token' );
+  is( $t->airlock->revoke_token("\x{263A}"), 0, 'and for revoke' );
+  is( $t->airlock->respond( 'POST', '/token', { grant_type => 'urn:ietf:params:oauth:grant-type:device_code', client_id => 'cli', device_code => "\x{263A}" }, {} )->[0], 400, 'through respond it is a 400, not an exception' );
+};
+
+subtest 'the opened event carries the clipped origin' => sub {
+  my $t = AirlockTest->new;
+  $t->start( origin => { ip => '1' x 200, ua => 'u' x 1000 } );
+  is( length $t->events->[0]{origin}{ua}, 255, 'ua clipped in the event too' );
+  is( length $t->events->[0]{origin}{ip}, 64,  'ip clipped in the event too' );
 };
 
 done_testing;

@@ -149,7 +149,7 @@ subtest 'poll: defaults for a sparse response' => sub {
 };
 
 subtest 'discovery' => sub {
-  my $config = { device_authorization_endpoint => 'http://id.test/device', token_endpoint => 'http://id.test/token' };
+  my $config = { issuer => 'http://id.test/realms/main', device_authorization_endpoint => 'http://id.test/device', token_endpoint => 'http://id.test/token' };
   my $app    = sub { [ 200, [], [ encode_json($config) ] ] };
   my $ua     = LocalUA->new( app => $app );
   my $client = Airlock::Client->new( client_id => 'cli', issuer => 'http://id.test/realms/main/', ua => $ua );
@@ -158,7 +158,7 @@ subtest 'discovery' => sub {
   is( scalar @{ $ua->seen }, 1, 'one discovery request for both' );
   is( $ua->seen->[0]{url}, 'http://id.test/realms/main/.well-known/openid-configuration', 'at the well-known URL, without a double slash' );
 
-  my $partial = Airlock::Client->new( client_id => 'cli', issuer => 'http://id.test', ua => LocalUA->new( app => sub { [ 200, [], ['{"token_endpoint":"http://id.test/token"}'] ] } ) );
+  my $partial = Airlock::Client->new( client_id => 'cli', issuer => 'http://id.test', ua => LocalUA->new( app => sub { [ 200, [], ['{"issuer":"http://id.test","token_endpoint":"http://id.test/token"}'] ] } ) );
   ok( !eval { $partial->device_endpoint; 1 }, 'a server without device endpoint croaks' );
   like( $@, qr/discovery has no device_authorization_endpoint/, 'and says what is missing' );
 
@@ -166,8 +166,33 @@ subtest 'discovery' => sub {
   ok( !eval { $down->token_endpoint; 1 }, 'a failed discovery croaks' );
   like( $@, qr/discovery failed: 503/, 'with the status' );
 
+  for my $other ( 'http://evil.test/realms/main', undef, "http://id.test/realms/main\e[2J" ) {
+    my $spoofed = Airlock::Client->new( client_id => 'cli', issuer => 'http://id.test/realms/main',
+      ua => LocalUA->new( app => sub { [ 200, [], [ encode_json( { %$config, issuer => $other } ) ] ] } ) );
+    ok( !eval { $spoofed->device_endpoint; 1 }, 'metadata for another issuer croaks' );
+    like( $@, qr/discovery is for another issuer: [\x20-\x7E]+ at /, 'and names it in printable characters only' );
+  }
+
   ok( !eval { Airlock::Client->new( client_id => 'cli' )->device_endpoint; 1 }, 'neither issuer nor endpoints croaks' );
   like( $@, qr/needs issuer, or device_endpoint and token_endpoint/, 'and says what to give' );
+};
+
+subtest 'poll: never sleeps past the lifetime of the code' => sub {
+  my ( undef, $client, $slept ) = fixture( app => sub { [ 400, [], [ encode_json( { error => 'authorization_pending' } ) ] ] } );
+  ok( !eval { $client->poll( { device_code => 'd', interval => 999_999_999, expires_in => 60 } ); 1 }, 'a huge interval still ends' );
+  is_deeply( $slept, [60], 'after sleeping what is left of the lifetime, not the interval' );
+
+  my @reply = ( 'slow_down', 'slow_down', 'slow_down' );
+  my ( undef, $slowed, $naps ) = fixture( app => sub { [ 400, [], [ encode_json( { error => shift @reply // 'authorization_pending' } ) ] ] } );
+  eval { $slowed->poll( { device_code => 'd', interval => 10, expires_in => 40 } ) };
+  is_deeply( $naps, [ 10, 15, 15 ], 'the last sleep is cut to what is left' );
+};
+
+subtest 'poll: a connection failure is retried, not fatal' => sub {
+  my @reply = ( [ 599, 'Timed out' ], [ 599, 'Connection refused' ], [ 200, encode_json( { access_token => 'tok' } ) ] );
+  my ( undef, $client, $slept ) = fixture( app => sub { my $r = shift @reply; [ $r->[0], [], [ $r->[1] ] ] } );
+  is( $client->poll( { device_code => 'd', interval => 5, expires_in => 600 } )->{access_token}, 'tok', 'the token arrives after two failures' );
+  is_deeply( $slept, [ 5, 10, 15 ], 'backing off by five seconds each time' );
 };
 
 subtest 'prompt_text' => sub {
@@ -177,6 +202,7 @@ subtest 'prompt_text' => sub {
   like( $text, qr{\AOpen https://example.org/airlock and enter the code BCDF-GHJK\nOr scan:\n}, 'where to go and the code' );
   like( $text, qr/[\x{2580}\x{2584}\x{2588}]{10}/, 'followed by the QR code' );
   is( $client->prompt_text( { verification_uri => 'https://x', user_code => 'ABCD' } ), "Open https://x and enter the code ABCD\n", 'no QR code without verification_uri_complete' );
+  is( $client->prompt_text( { verification_uri => "https://x\e[2J\r", user_code => "AB\x{7}CD\n" } ), "Open https://x?[2J? and enter the code AB?CD?\n", 'control characters from the server never reach the terminal' );
 };
 
 subtest 'against a real socket' => sub {

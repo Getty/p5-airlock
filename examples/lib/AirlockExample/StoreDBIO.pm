@@ -34,7 +34,12 @@ sub find {
 # number of rows it changed, as '0E0' when there were none.
 sub update {
   my ( $self, $hash, $from_state, $changes ) = @_;
-  return $self->_rs->search( { hash => $hash, state => $from_state } )->update( { %$changes } ) > 0 ? 1 : 0;
+  # a reference to a number means "add it", done by the database in one statement
+  my %set = map {
+    my $value = $changes->{$_};
+    $_ => ref $value eq 'SCALAR' ? \[ $_.' + ?', $$value ] : $value
+  } keys %$changes;
+  return $self->_rs->search( { hash => $hash, state => $from_state } )->update( \%set ) > 0 ? 1 : 0;
 }
 
 sub purge {

@@ -49,7 +49,7 @@ has _secret => (
 =attr secret
 
 Required. Coderef called with the subject; returns the raw secret bytes, or
-nothing when the subject has not enrolled.
+nothing (or an empty string) when the subject has not enrolled.
 
 =cut
 
@@ -76,8 +76,11 @@ has _accept_step => (
 
 =attr accept_step
 
-Required. Coderef called with the subject and the time step that was just
-accepted; stores it so the same code cannot be used again.
+Required. Coderef called with the subject and the time step that is being
+accepted. It stores the step, so the same code cannot be used again, and
+returns true. Where two requests can arrive at once, store only if the new
+step is greater than the stored one and return false otherwise; the approval
+then fails instead of accepting one code twice.
 
 =cut
 
@@ -151,28 +154,51 @@ The code for a secret at a time step.
 
 sub available_for {
   my ( $self, $subject ) = @_;
-  return defined $self->_secret->($subject) ? 1 : 0;
+  my $secret = $self->_secret->($subject);
+  return defined $secret && length $secret ? 1 : 0;
 }
 
-sub verify {
+# The time step this proof is valid for, or nothing. Every step of the window
+# is computed whether or not an earlier one matched.
+sub _step {
   my ( $self, $subject, $proof ) = @_;
-  return 0 unless defined $proof;
+  return unless defined $proof;
   $proof =~ s/\s//g;
-  return 0 unless $proof =~ /\A[0-9]+\z/ && length $proof == $self->digits;
+  return unless $proof =~ /\A[0-9]+\z/ && length $proof == $self->digits;
   my $secret = $self->_secret->($subject);
-  return 0 unless defined $secret;
+  return unless defined $secret && length $secret;
   my $current = int( $self->now->() / $self->period );
   my $hit;
   for my $step ( $current - $self->window .. $current + $self->window ) {
     next unless $self->code_class->equals( $self->code_at( $secret, $step ), $proof );
     $hit = $step;
   }
-  return 0 unless defined $hit;
+  return unless defined $hit;
   my $last = $self->_last_step->($subject);
-  return 0 if defined $last && $hit <= $last;
-  $self->_accept_step->( $subject, $hit );
-  return 1;
+  return if defined $last && $hit <= $last;
+  return $hit;
 }
+
+sub verify {
+  my ( $self, $subject, $proof ) = @_;
+  return defined $self->_step( $subject, $proof ) ? 1 : 0;
+}
+
+sub commit {
+  my ( $self, $subject, $proof ) = @_;
+  my $step = $self->_step( $subject, $proof );
+  return 0 unless defined $step;
+  return $self->_accept_step->( $subject, $step ) ? 1 : 0;
+}
+
+=method commit
+
+    $totp->verify( $subject, $proof ) && $totp->commit( $subject, $proof )
+
+Uses the code up. L<Airlock> calls this after every factor has verified; code
+that uses this class on its own has to call it after C<verify>.
+
+=cut
 
 sub generate_secret { urandom(20) }
 

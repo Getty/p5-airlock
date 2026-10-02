@@ -5,6 +5,7 @@ use Test::More;
 use lib 't/lib';
 
 use Airlock::Factor::Callback;
+use Airlock::Factor::TOTP;
 use Airlock::Factor::Upstream;
 use AirlockTest;
 
@@ -125,6 +126,70 @@ subtest 'a policy naming an unknown factor is a programming error' => sub {
   my $data = $t->start;
   ok( !eval { $t->airlock->approve( $data->{user_code}, subject => $alice ); 1 }, 'croaks' );
   like( $@, qr/unknown factor fingerprint/, 'and names it' );
+};
+
+subtest 'an empty proof is a missing proof, not a wrong one' => sub {
+  my $t    = fixture( max_factor_failures => 2 );
+  my $data = $t->start( scope => 'admin' );
+  for ( 1 .. 3 ) {
+    my $result = $t->airlock->approve( $data->{user_code}, subject => $alice, proofs => { pin => '' } );
+    is( $result->status, 'factor_required', 'a blank field asks again' );
+  }
+  is( $t->row( $data->{device_code} )->{factor_failures}, 0, 'and burns no attempt' );
+  is( scalar @pin_calls, 0, 'the factor is never asked' );
+};
+
+subtest 'wrong guesses that all read the row before any of them wrote' => sub {
+  my $t     = fixture( max_factor_failures => 3 );
+  my $data  = $t->start( scope => 'admin' );
+  my $stale = $t->memory->find( 'user_code', $data->{user_code} =~ s/-//r );
+
+  # every guess sees the row as it was at the start: zero failures
+  my $racing = Airlock->new(
+    clients          => { cli => { scopes => ['admin'] } },
+    verification_uri => 'https://example.org/airlock',
+    now              => sub { $t->clock },
+    policy           => $t->airlock->policy,
+    factors          => $t->airlock->factors,
+    max_factor_failures => 3,
+    store            => { %{ $t->memory->as_subs }, find => sub { $_[0] eq 'user_code' ? { %$stale } : $t->memory->find(@_) } }
+  );
+  my @status = map { $racing->approve( $data->{user_code}, subject => $alice, proofs => { pin => '000'.$_ } )->status } 1 .. 3;
+  is_deeply( \@status, [qw( factor_failed factor_failed too_many_failures )], 'each one counts, the third is final' );
+  is( $t->row( $data->{device_code} )->{factor_failures}, 3, 'three failures are in the store' );
+  is( $t->row( $data->{device_code} )->{state}, 'denied', 'and the request is denied' );
+};
+
+subtest 'TOTP through approve' => sub {
+  my ( %secret, %step );
+  %secret = ( alice => '12345678901234567890' );
+  my $t;
+  my $totp = Airlock::Factor::TOTP->new(
+    secret      => sub { $secret{ $_[0]{id} } },
+    last_step   => sub { $step{ $_[0]{id} } },
+    accept_step => sub { $step{ $_[0]{id} } = $_[1] },
+    now         => sub { $t->clock }
+  );
+  $t = fixture( policy => { step_up => { admin => [qw( totp pin )], write => ['totp'] } }, factors => [ $totp, fixture()->airlock->factor('pin') ] );
+  my $code = sub { $totp->code_at( $secret{alice}, int( $t->clock / 30 ) ) };
+
+  my $data = $t->start( scope => 'admin' );
+  my $half = $t->airlock->approve( $data->{user_code}, subject => $alice, proofs => { totp => $code->(), pin => '1234' } );
+  is( $half->status, 'factor_failed', 'right TOTP, wrong PIN' );
+  is_deeply( $half->missing, ['pin'], 'the PIN is blamed' );
+  is( $step{alice}, undef, 'and the TOTP code is not used up' );
+  ok( $t->airlock->approve( $data->{user_code}, subject => $alice, proofs => { totp => $code->(), pin => '4711' } )->ok, 'the same TOTP code with the right PIN approves' );
+  is( $step{alice}, int( $t->clock / 30 ), 'now it is used up' );
+  is( $t->row( $data->{device_code} )->{factor_failures}, 1, 'one failure counted, not two' );
+
+  my $second = $t->start( scope => 'write' );
+  my $replay = $t->airlock->approve( $second->{user_code}, subject => $alice, proofs => { totp => $code->() } );
+  is( $replay->status, 'factor_failed', 'the used code does not approve a second request' );
+  $t->advance(30);
+  ok( $t->airlock->approve( $second->{user_code}, subject => $alice, proofs => { totp => $code->() } )->ok, 'the next code does' );
+
+  my $third = $t->start( scope => 'write' );
+  is( $t->airlock->approve( $third->{user_code}, subject => { id => 'bob' }, proofs => { totp => '123456' } )->status, 'factor_unavailable', 'someone without a secret cannot use the factor' );
 };
 
 done_testing;

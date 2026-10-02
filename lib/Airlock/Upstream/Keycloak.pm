@@ -30,6 +30,13 @@ the token claims into the subject L<Airlock> wants, and builds the
 L<Airlock::Factor::Upstream> that recognises a Keycloak login with a second
 factor.
 
+A Keycloak realm in its default configuration does not report a second factor
+in the token: with Keycloak 26.8.0 a password login and a login with TOTP both
+carry C<acr=1> and no C<amr>. The factor built here holds only once the realm
+is configured to report one, through an C<amr> protocol mapper or through
+step-up authentication with its own C<acr> values, and L</mfa_amr> or
+L</mfa_acr> name what it reports.
+
 =cut
 
 has mfa_amr => (

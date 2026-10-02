@@ -63,6 +63,19 @@ the grant once it has verified, for example C<otp>.
 
 =cut
 
+sub commit { 1 }
+
+=method commit
+
+    $factor->commit( $subject, $proof )
+
+Called once every factor of an approval has verified. A factor whose proof may
+be used only once records that here, not in C<verify>, so that a proof is not
+used up when another factor fails. Returns true; a false return fails the
+approval.
+
+=cut
+
 sub needs_proof { 1 }
 
 =method needs_proof

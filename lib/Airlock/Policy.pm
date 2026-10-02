@@ -75,6 +75,15 @@ declarative rules produced; returns the list to use.
 
 =cut
 
+sub clock_skew { 60 }
+
+=method clock_skew
+
+Seconds an C<auth_time> may lie in the future before it is taken for wrong
+rather than for clock drift. 60.
+
+=cut
+
 sub required {
   my ( $self, $request, $subject ) = @_;
   my %seen;
@@ -95,7 +104,8 @@ sub fresh {
   my ( $self, $subject, $now ) = @_;
   return 1 unless $self->has_max_auth_age;
   return 0 unless defined $subject->{auth_time};
-  return $now - $subject->{auth_time} <= $self->max_auth_age ? 1 : 0;
+  my $age = $now - $subject->{auth_time};
+  return $age >= -$self->clock_skew && $age <= $self->max_auth_age ? 1 : 0;
 }
 
 =method fresh

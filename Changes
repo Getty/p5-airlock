@@ -10,3 +10,5 @@ Revision history for Airlock
     - Airlock::Client: RFC 8628 device flow client with discovery and terminal QR code
     - Examples: Plack and Mojolicious host apps, store on DBI and DBIO, device CLI
     - Airlock::Upstream::Keycloak: Keycloak token claims as Airlock subject; live test behind TEST_AIRLOCK_KEYCLOAK_URL
+    - Store contract: a reference to a number in update changes is added to the column
+    - Factors verify first and commit once all hold; a TOTP code is only used up then
