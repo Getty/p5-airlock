@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-10-02T20:36:55Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:55Z
+created: 2026-10-02T19:55:15Z
+id: 9
+priority: high
+started: 2026-10-02T20:36:55Z
+status: done
+tags:
+- core
+title: 'Airlock::Code: codes, secrets, hashing, constant-time comparison'
+updated: 2026-10-02T20:36:55Z
+---
+
+Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 2. Spec section 6 (Code).
+
+ Done in 1ec452d; review fixes in 09c6cf2.
