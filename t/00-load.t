@@ -5,6 +5,7 @@ use Test::More;
 
 for (qw(
   Airlock
+  Airlock::Client
   Airlock::Code
   Airlock::Factor
   Airlock::Factor::Callback
