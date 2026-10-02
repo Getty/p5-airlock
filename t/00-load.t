@@ -5,6 +5,7 @@ use Test::More;
 
 for (qw(
   Airlock
+  Airlock::QR
 )) {
   use_ok($_);
 }

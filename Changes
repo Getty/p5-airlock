@@ -1,4 +1,4 @@
 Revision history for Airlock
 
 {{$NEXT}}
-    - Initial skeleton
+    - Airlock::QR: QR codes as SVG, terminal blocks and data URI, in pure Perl
