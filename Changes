@@ -4,3 +4,4 @@ Revision history for Airlock
     - Airlock::QR: QR codes as SVG, terminal blocks and data URI, in pure Perl
     - Airlock::Code: user codes, secrets, hashing and constant-time comparison
     - Airlock::Store::Memory and Airlock::Test::Store: the four-sub store contract and its test suite
+    - Airlock::Factor role with Callback, TOTP (RFC 6238) and Upstream; Airlock::Policy for step-up rules

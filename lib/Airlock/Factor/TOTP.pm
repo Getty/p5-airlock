@@ -1,0 +1,229 @@
+package Airlock::Factor::TOTP;
+
+# ABSTRACT: Time-based one-time password (RFC 6238) as an Airlock factor
+
+use Moo;
+with 'Airlock::Factor';
+use Airlock::Code;
+use Carp qw( croak );
+use Crypt::URandom qw( urandom );
+use Digest::SHA qw( hmac_sha1 );
+use Types::Standard qw( CodeRef Int );
+use namespace::autoclean;
+
+our $VERSION = '0.001';
+
+=synopsis
+
+    my $totp = Airlock::Factor::TOTP->new(
+      secret      => sub { my ( $subject ) = @_; $db->totp_secret( $subject->{id} ) },
+      last_step   => sub { my ( $subject ) = @_; $db->totp_step( $subject->{id} ) },
+      accept_step => sub { my ( $subject, $step ) = @_; $db->set_totp_step( $subject->{id}, $step ) },
+    );
+
+    # enrolment
+    my $secret = $totp->generate_secret;
+    my $uri    = $totp->otpauth_uri( secret => $secret, account => 'getty@example.org', issuer => 'Mothership' );
+
+=description
+
+TOTP with HMAC-SHA1, which is what authenticator apps implement. Airlock stores
+nothing itself: the secret and the last accepted time step come from the host
+application through three coderefs.
+
+A code is accepted once. C<last_step> and C<accept_step> are what make that
+true, which is why both are required.
+
+=cut
+
+has '+name' => ( default => 'totp' );
+has '+amr'  => ( default => 'otp' );
+
+has _secret => (
+  is       => 'ro',
+  isa      => CodeRef,
+  init_arg => 'secret',
+  required => 1
+);
+
+=attr secret
+
+Required. Coderef called with the subject; returns the raw secret bytes, or
+nothing when the subject has not enrolled.
+
+=cut
+
+has _last_step => (
+  is       => 'ro',
+  isa      => CodeRef,
+  init_arg => 'last_step',
+  required => 1
+);
+
+=attr last_step
+
+Required. Coderef called with the subject; returns the last accepted time
+step, or nothing when there is none yet.
+
+=cut
+
+has _accept_step => (
+  is       => 'ro',
+  isa      => CodeRef,
+  init_arg => 'accept_step',
+  required => 1
+);
+
+=attr accept_step
+
+Required. Coderef called with the subject and the time step that was just
+accepted; stores it so the same code cannot be used again.
+
+=cut
+
+has digits => (
+  is      => 'ro',
+  isa     => Int,
+  default => 6
+);
+
+=attr digits
+
+Length of a code. Default 6.
+
+=cut
+
+has period => (
+  is      => 'ro',
+  isa     => Int,
+  default => 30
+);
+
+=attr period
+
+Seconds per time step. Default 30.
+
+=cut
+
+has window => (
+  is      => 'ro',
+  isa     => Int,
+  default => 1
+);
+
+=attr window
+
+Time steps accepted before and after the current one, for clock drift.
+Default 1.
+
+=cut
+
+has now => (
+  is      => 'ro',
+  isa     => CodeRef,
+  default => sub { sub { time } }
+);
+
+=attr now
+
+Coderef returning the current epoch. For tests.
+
+=cut
+
+sub code_class { 'Airlock::Code' }
+
+sub code_at {
+  my ( $self, $secret, $step ) = @_;
+  my $counter = pack 'NN', int( $step / 4294967296 ), $step % 4294967296;
+  my $mac     = hmac_sha1( $counter, $secret );
+  my $offset  = ord( substr $mac, -1 ) & 0x0f;
+  my $number  = unpack( 'N', substr $mac, $offset, 4 ) & 0x7fffffff;
+  return sprintf '%0'.$self->digits.'d', $number % ( 10**$self->digits );
+}
+
+=method code_at
+
+    my $code = $totp->code_at( $secret, int( time / 30 ) );
+
+The code for a secret at a time step.
+
+=cut
+
+sub available_for {
+  my ( $self, $subject ) = @_;
+  return defined $self->_secret->($subject) ? 1 : 0;
+}
+
+sub verify {
+  my ( $self, $subject, $proof ) = @_;
+  return 0 unless defined $proof;
+  $proof =~ s/\s//g;
+  return 0 unless $proof =~ /\A[0-9]+\z/ && length $proof == $self->digits;
+  my $secret = $self->_secret->($subject);
+  return 0 unless defined $secret;
+  my $current = int( $self->now->() / $self->period );
+  my $hit;
+  for my $step ( $current - $self->window .. $current + $self->window ) {
+    next unless $self->code_class->equals( $self->code_at( $secret, $step ), $proof );
+    $hit = $step;
+  }
+  return 0 unless defined $hit;
+  my $last = $self->_last_step->($subject);
+  return 0 if defined $last && $hit <= $last;
+  $self->_accept_step->( $subject, $hit );
+  return 1;
+}
+
+sub generate_secret { urandom(20) }
+
+=method generate_secret
+
+    my $secret = $totp->generate_secret;
+
+Twenty random bytes for a new enrolment.
+
+=cut
+
+sub base32 {
+  my ( $self, $bytes ) = @_;
+  my @alphabet = ( 'A' .. 'Z', '2' .. '7' );
+  my $bits     = unpack 'B*', $bytes;
+  $bits .= '0' x ( ( 5 - length($bits) % 5 ) % 5 );
+  return join '', map { $alphabet[ oct '0b'.$_ ] } $bits =~ /(.{5})/g;
+}
+
+=method base32
+
+    my $text = $totp->base32($secret);
+
+RFC 4648 base32 without padding, the form authenticator apps take.
+
+=cut
+
+sub otpauth_uri {
+  my ( $self, %arg ) = @_;
+  for (qw( secret account issuer )) {
+    croak __PACKAGE__.'->otpauth_uri needs '.$_ unless defined $arg{$_} && length $arg{$_};
+  }
+  return 'otpauth://totp/'.$self->_escape( $arg{issuer} ).':'.$self->_escape( $arg{account} )
+    .'?secret='.$self->base32( $arg{secret} )
+    .'&issuer='.$self->_escape( $arg{issuer} )
+    .'&algorithm=SHA1&digits='.$self->digits.'&period='.$self->period;
+}
+
+=method otpauth_uri
+
+    my $uri = $totp->otpauth_uri( secret => $secret, account => 'getty@example.org', issuer => 'Mothership' );
+
+The C<otpauth://> URI for enrolment. Feed it to L<Airlock::QR>.
+
+=cut
+
+sub _escape {
+  my ( $self, $text ) = @_;
+  utf8::encode($text) if utf8::is_utf8($text);
+  $text =~ s/([^A-Za-z0-9\-._~])/sprintf '%%%02X', ord $1/ge;
+  return $text;
+}
+
+1;
