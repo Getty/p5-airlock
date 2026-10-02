@@ -1,7 +1,7 @@
 # Airlock – Design
 
-Datum: 2026-10-02 (Revision 2: PSGI und Funktionen statt Mojolicious-Plugin, Store als Subs, keine Templates)
-Status: Entwurf, wartet auf Review
+Datum: 2026-10-02 (Revision 3: beim Planen geklärte Details, siehe Abschnitt 11)
+Status: freigegeben am 2026-10-02; Umsetzungsplan in `docs/superpowers/plans/2026-10-02-airlock-phase-1.md`
 Distribution: `Airlock` (Repo `p5-airlock`), CPAN-fähig, `[@Author::GETTY]`
 
 ## 1. Was Airlock ist
@@ -310,3 +310,34 @@ Entwicklungs-Abhängigkeit.
 - Store als Subs der Host-App, Beispiele für DBI und DBIO, kein Treiber in der Dist.
 - Keycloak minimal (Login-Quelle plus Client), live getestet.
 - Opakes Token als Standard, JWT in Phase 2.
+
+## 11. Beim Planen geklärt (Revision 3)
+
+Der Umsetzungsplan wurde gegen einen lauffähigen Prototyp geschrieben. Dabei haben sich
+sieben Punkte gegenüber dem Text oben verschoben; wo sie ihm widersprechen, gelten sie.
+
+- **`handle` ist keine Methode von `Airlock`.** Es lebt in `Airlock::HTTPMessage->new(
+  airlock => $airlock )->handle( $request, ip => ... )`. Grund: Die Hausregel verbietet
+  verzögertes `require`, und `Airlock` selbst soll nicht von `HTTP::Message` abhängen.
+  `to_app` und `respond` bleiben Methoden von `Airlock`.
+- **Die Store-Zeile** hat die Felder `hash kind user_code client_id scope state created
+  expires poll_interval last_poll subject amr acr auth_time approved origin_ip origin_ua
+  factor_failures`. `find` sucht nach `hash` oder `user_code`. Das Poll-Intervall heißt
+  `poll_interval`, weil `INTERVAL` in manchen SQL-Dialekten reserviert ist.
+- **Opake Tokens liegen in derselben Tabelle** wie die Anfragen (`kind` ist `request` oder
+  `token`). So bleibt der Store bei vier Subs. Dazu gibt es `revoke_token`.
+- **Der `user_code` bleibt an einer bestätigten Anfrage**, bis sie eingelöst, abgelehnt
+  oder abgelaufen ist. Nur so meldet ein Doppelklick auf „Bestätigen“ beim zweiten Mal
+  ebenfalls Erfolg statt „Code unbekannt“. Für jede andere Person bleibt der Code unbekannt.
+- **Der eingebaute Speicher verweigert die Benutzung über einen Fork hinweg.** Unter einem
+  Prefork-Server wären Codes sonst zufällig unbekannt.
+- **Die Encoder-Naht von `Airlock::QR` ist ein Coderef-Attribut** (`encoder`). Eine
+  automatische Umschaltung auf `Text::QRCode` gibt es nicht. Der Nachweis ist erbracht:
+  `GD::Barcode::QRcode` 2.02 läuft ohne GD, und ein unabhängiger Decoder (jsQR) liest die
+  Matrizen in allen vier Fehlerkorrektur-Stufen zurück.
+- **`code_miss` trägt das Subject, nicht die Herkunft.** IP und Session kennt die Host-App
+  an der Stelle selbst.
+
+Die Policy ist eine eigene Klasse `Airlock::Policy`; ein Hash wird beim Konstruieren
+umgewandelt. Ergebnisse sind `Airlock::Result`-Objekte mit `ok`, `status`, `data`,
+`missing` und `oauth`.
