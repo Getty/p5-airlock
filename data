@@ -1,0 +1,25 @@
+---
+claimed_at: 2026-10-02T20:36:57Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:57Z
+created: 2026-10-02T19:24:51Z
+depends_on:
+- 3
+- 4
+- 9
+id: 2
+priority: high
+started: 2026-10-02T20:36:57Z
+status: done
+tags:
+- core
+title: Core state machine with built-in store and injected clock
+updated: 2026-10-02T20:36:57Z
+---
+
+Airlock: open, inspect, requirements, approve, deny, redeem; states pending/approved/denied/expired/redeemed; slow_down; one-time redeem through conditional update; Airlock::Code; on_event. Time only through now. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md sections 4 and 6.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 5. Airlock::Code moved to card 9; this card is the core only and needs store, factors and code first.
+
+ Done in bd5887c; review fixes in 09c6cf2.
