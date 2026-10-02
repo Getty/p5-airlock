@@ -9,3 +9,4 @@ Revision history for Airlock
     - Device and token endpoint as PSGI (to_app), for HTTP::Request (Airlock::HTTPMessage) and framework-neutral (respond)
     - Airlock::Client: RFC 8628 device flow client with discovery and terminal QR code
     - Examples: Plack and Mojolicious host apps, store on DBI and DBIO, device CLI
+    - Airlock::Upstream::Keycloak: Keycloak token claims as Airlock subject; live test behind TEST_AIRLOCK_KEYCLOAK_URL
