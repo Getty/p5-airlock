@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-10-02T20:37:00Z
+claimed_by: hub
+class: standard
+created: 2026-10-02T19:24:51Z
+id: 1
+priority: high
+started: 2026-10-02T20:37:00Z
+status: review
+tags:
+- qr
+- spike
+title: 'QR proof: encoder output reads back with an independent decoder'
+updated: 2026-10-02T20:37:00Z
+---
+
+Prove that the QR matrix from GD::Barcode::QRcode (pure Perl, no GD at runtime) decodes back to the input with an independent decoder, for a verification URI and an otpauth URI. If it fails, switch the encoder before anything builds on it. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 6 (QR).
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 1. Local proof done 2026-10-02 with jsQR; t/11-qr-readback.t (zbarimg) is still unrun.
+
+ Implemented in e83b806. Matrices read back with jsQR locally; t/11-qr-readback.t needs zbarimg and has not run yet (CI installs zbar-tools).
