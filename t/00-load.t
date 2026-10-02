@@ -10,9 +10,11 @@ for (qw(
   Airlock::Factor::Callback
   Airlock::Factor::TOTP
   Airlock::Factor::Upstream
+  Airlock::HTTPMessage
   Airlock::Policy
   Airlock::QR
   Airlock::Result
+  Airlock::Role::Endpoints
   Airlock::Store::Memory
   Airlock::Test::Store
 )) {

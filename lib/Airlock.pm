@@ -3,6 +3,7 @@ package Airlock;
 # ABSTRACT: Embeddable device authorization (RFC 8628) with step-up second factors
 
 use Moo;
+with 'Airlock::Role::Endpoints';
 use Airlock::Code;
 use Airlock::Policy;
 use Airlock::Result;
@@ -22,6 +23,9 @@ our $VERSION = '0.001';
       policy           => { step_up => { admin => ['totp'] } },
       factors          => [ Airlock::Factor::Callback->new( name => 'totp', amr => 'otp', verify => sub {...} ) ],
     );
+
+    # machine side: mount the two JSON endpoints
+    my $app = $airlock->to_app;
 
     # human side: the host application renders its own page
     my $view  = $airlock->inspect( $typed_code, subject => $subject ) or return not_found();
