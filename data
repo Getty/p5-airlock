@@ -1,0 +1,23 @@
+---
+claimed_at: 2026-10-02T20:36:58Z
+claimed_by: hub
+class: standard
+completed: 2026-10-02T20:36:58Z
+created: 2026-10-02T19:24:52Z
+depends_on:
+- 2
+id: 5
+priority: high
+started: 2026-10-02T20:36:58Z
+status: done
+tags:
+- http
+title: 'Machine endpoints: respond, to_app (PSGI), handle (HTTP::Message)'
+updated: 2026-10-02T20:36:58Z
+---
+
+One neutral respond(method, path, params); to_app without a Plack dependency; handle loading HTTP::Message lazily (recommends). Routes POST device and POST token only. RFC 8628 error responses. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 5.
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 6. handle lives in Airlock::HTTPMessage (spec revision 3).
+
+ Done in 25b7389; review fixes in 09c6cf2.
