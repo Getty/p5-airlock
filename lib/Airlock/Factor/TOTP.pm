@@ -11,7 +11,7 @@ use Digest::SHA qw( hmac_sha1 );
 use Types::Standard qw( CodeRef Int );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

@@ -8,7 +8,7 @@ use HTTP::Status qw( status_message );
 use Types::Standard qw( InstanceOf );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

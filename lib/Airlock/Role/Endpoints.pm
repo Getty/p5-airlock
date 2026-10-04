@@ -5,7 +5,7 @@ package Airlock::Role::Endpoints;
 use JSON::MaybeXS;
 use Moo::Role;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

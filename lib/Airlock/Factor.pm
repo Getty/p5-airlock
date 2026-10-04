@@ -5,7 +5,7 @@ package Airlock::Factor;
 use Types::Standard qw( Str );
 use Moo::Role;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

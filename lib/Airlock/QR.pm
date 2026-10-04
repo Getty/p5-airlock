@@ -9,7 +9,7 @@ use MIME::Base64 qw( encode_base64 );
 use Types::Standard qw( ArrayRef CodeRef Enum Int Str );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

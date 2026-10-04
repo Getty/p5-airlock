@@ -7,7 +7,7 @@ with 'Airlock::Factor';
 use Types::Standard qw( CodeRef );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

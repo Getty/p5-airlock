@@ -6,7 +6,7 @@ use Moo;
 use Carp qw( croak );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

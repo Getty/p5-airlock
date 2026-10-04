@@ -12,7 +12,7 @@ use Carp qw( croak );
 use Types::Standard qw( ArrayRef CodeRef ConsumerOf HashRef InstanceOf Int Str );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

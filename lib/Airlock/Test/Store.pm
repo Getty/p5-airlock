@@ -7,7 +7,7 @@ use Test::More;
 use Types::Standard qw( CodeRef HashRef );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

@@ -10,7 +10,7 @@ use JSON::MaybeXS;
 use Types::Standard qw( CodeRef InstanceOf Str );
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 
