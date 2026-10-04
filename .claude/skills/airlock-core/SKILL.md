@@ -78,8 +78,15 @@ documentation or memory.
 - Keycloak says nothing about a second factor until its realm is set up; authentik says
   it out of the box (`amr=pwd` / `amr=pwd,mfa`).
 - authentik's `acr` is one constant string, so `mfa_acr` stays empty there.
-- authentik ignores `max_age=0`, so `reauth_params` does not force a fresh login; its
-  `auth_time` is the session's, which is what `max_age` on the factor wants.
+- `max_age=0` is the one value authentik discards (it tests the number for truth), so
+  `Airlock::Upstream::Authentik->reauth_params` sends `prompt=login`; the shared
+  `Airlock::Factor::Upstream->reauth_params` still sends `max_age => 0` and is left
+  alone. authentik's `auth_time` is the session's, which is what `max_age` on the
+  factor wants.
+- authentik rate-limits the device **authorization** endpoint, not just token polling,
+  and answers HTTP 429 `slow_down` there: 20/hour per client IP, raised on the test
+  instance with `AUTHENTIK_THROTTLE__PROVIDERS__OAUTH2__DEVICE`. `t/91` bails out with
+  that name rather than an opaque error.
 - The two classes are the same code with different documentation. A third upstream is
   the moment to pull a role out of them, not before.
 - The authentik test needs the `p5-www-authentik` checkout for `WWW::Authentik` and its

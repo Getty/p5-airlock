@@ -70,6 +70,13 @@ has max_age => (
 =attr max_age
 
 Optional. Seconds since C<auth_time> after which the authentication is too old.
+Left out, the age of the authentication does not matter and only C<amr> and
+C<acr> decide.
+
+Set, it needs an C<auth_time> to measure: a subject without one never passes,
+whatever its C<amr> says. That is deliberate — an unknown age is not a young
+one — but it means that against an identity provider which omits C<auth_time>
+the factor silently never holds. Check that yours sends it before setting this.
 
 =cut
 
@@ -87,7 +94,29 @@ Coderef returning the current epoch. For tests.
 
 sub clock_skew { 60 }
 
+=method clock_skew
+
+    my $seconds = $upstream->clock_skew;   # 60
+
+How far the identity provider's clock may run ahead of this one, in seconds.
+Sixty, not configurable; override the method in a subclass to change it.
+
+It bends one way only. An C<auth_time> up to C<clock_skew> seconds in the future
+is taken as now, because a provider whose clock is fast would otherwise be
+unusable. The L</max_age> edge gets no such tolerance: with the default skew and
+C<< max_age => 300 >>, an authentication passes while its apparent age is
+between C<-60> and C<300> seconds. A provider running fast therefore gets a
+shorter effective window, never a longer one, which is the safe direction.
+
+=cut
+
 sub needs_proof { 0 }
+
+=method needs_proof
+
+False. The person does nothing here; the identity provider already asked.
+
+=cut
 
 sub verify {
   my ( $self, $subject ) = @_;
@@ -100,6 +129,16 @@ sub verify {
   my $age = $self->now->() - $subject->{auth_time};
   return $age >= -$self->clock_skew && $age <= $self->max_age ? 1 : 0;
 }
+
+=method verify
+
+    my $ok = $upstream->verify( $subject );
+
+True when the subject carries one of L</accept_amr> or one of L</accept_acr>
+and, if L</max_age> is set, has an C<auth_time> within it. The proof argument
+the role passes is ignored.
+
+=cut
 
 sub reauth_params {
   my ( $self ) = @_;
@@ -115,6 +154,13 @@ sub reauth_params {
 
 Parameters to add to the OIDC authorization request that sends the person back
 to the identity provider for a fresh, strong authentication.
+
+C<< max_age => 0 >> is what OpenID Connect Core gives for "authenticate again
+whatever happened". Not every provider honours it: authentik 2026.8.3 tests the
+value for truth and so discards exactly the zero, letting the existing session
+through. L<Airlock::Upstream::Authentik/reauth_params> sends C<prompt=login>
+instead. If your provider is not authentik, send one request with
+C<< max_age => 0 >> against a live session before you trust this.
 
 =cut
 

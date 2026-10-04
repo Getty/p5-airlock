@@ -57,6 +57,10 @@ subtest 'upstream' => sub {
   is_deeply( $factor->reauth_params, { max_age => 0 }, 'reauth params without acr values' );
 
   my $fresh = Airlock::Factor::Upstream->new( max_age => 300, now => sub { $clock } );
+  # The tolerance bends one way: clock_skew widens the future edge and leaves
+  # the max_age edge alone, so the window is -60..300, not -60..360. Documented
+  # under Airlock::Factor::Upstream/clock_skew; these four pin it.
+  is( $fresh->clock_skew, 60, 'the skew the window is built from' );
   is( $fresh->verify( { id => 'a', amr => ['otp'], auth_time => 9_700 } ), 1, 'exactly max_age old' );
   is( $fresh->verify( { id => 'a', amr => ['otp'], auth_time => 9_699 } ), 0, 'one second too old' );
   is( $fresh->verify( { id => 'a', amr => ['otp'] } ),                     0, 'no auth_time counts as too old' );

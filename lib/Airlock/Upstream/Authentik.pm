@@ -60,25 +60,54 @@ C<< max_age => 300 >>.
 
 =item *
 
-C<amr> and C<auth_time> are the same in the ID token, the access token and the
-introspection answer.
+C<amr> and C<auth_time> are the same in the ID token and the access token.
+(Introspection would say the same, but it needs a confidential client; the
+public one the test uses gets C<< { active: false } >> and nothing else.)
 
 =back
 
-=head2 Asking for a fresh authentication does not work
+Two qualifications on C<auth_time>, both read in authentik's source rather
+than provoked here. A client-credentials or token-exchange grant sets it to
+the minting time, not to a login — harmless for this factor, which refuses
+anything without an C<amr>, but it is not the session's time there. And when
+authentik finds no login event for a session, it falls back to the current
+time, so an old authentication can look new: that direction B<fails open>, and
+C<max_age> cannot catch it.
+
+=head2 Asking for a fresh authentication
 
 L<Airlock::Factor::Upstream/reauth_params> returns C<< max_age => 0 >>, which
-is the OpenID Connect way of saying "authenticate this person again". B<authentik
-2026.8.3 ignores it>: the authorization endpoint hands back a code at once,
-carrying the C<auth_time> of the old session. Observed directly — a session
-logged in ten seconds earlier answered a C<< max_age=0 >> request immediately
-with the unchanged C<auth_time>.
+is what OpenID Connect says for "authenticate this person again". B<authentik
+2026.8.3 throws that one value away>: its authorization endpoint only looks at
+C<max_age> when it is true, and zero is not, so a code comes back at once with
+the C<auth_time> of the old session.
 
-So a host application on authentik cannot send a person back for a stronger or
-fresher login by adding parameters. What does work is ending the authentik
-session first, through the application's C<end-session> endpoint, and only then
-starting the authorization request again. Airlock does not do that for you: it
-has no OIDC client and does not know your application's endpoints.
+Every other value works. Measured against a session six seconds old:
+
+    no parameter     a code, no new login
+    max_age=0        a code, no new login      <- what reauth_params sends
+    max_age=1        sent back to log in
+    max_age=2        sent back to log in
+    max_age=3600     a code, no new login      (the session is younger)
+    prompt=login     sent back to log in
+
+So the escape hatch is not broken here, it is one value off. L</reauth_params>
+gives the parameters that do work on authentik; use them in place of the
+factor's.
+
+=method reauth_params
+
+    my $params = $authentik->reauth_params;         # { prompt => 'login' }
+    my $params = $authentik->reauth_params( max_age => 300 );
+
+What to add to the authorization request to send someone back for a fresh
+login. C<prompt=login> is plain OpenID Connect, authentik honours it, and
+unlike C<max_age> it does not depend on how old the session happens to be.
+
+With C<max_age> it asks for an authentication no older than that many seconds
+instead — the same number you gave the factor, so the two agree on what counts
+as too old. A C<max_age> of 0 is refused rather than sent, because authentik
+would ignore it.
 
 =head2 Requiring the second factor in authentik
 
@@ -145,6 +174,17 @@ it differs between two applications of one authentik. That is fine for Airlock,
 which only compares it with itself, but it is not a user id to store.
 
 =cut
+
+sub reauth_params {
+  my ( $self, %arg ) = @_;
+  croak __PACKAGE__.'->reauth_params cannot use a max_age of 0: authentik ignores it. '
+    .'Leave max_age out for prompt=login, or give the seconds the factor uses.'
+    if exists $arg{max_age} && defined $arg{max_age} && !$arg{max_age};
+  return {
+    ( defined $arg{max_age} ? ( max_age => $arg{max_age} ) : ( prompt => 'login' ) ),
+    @{ $self->mfa_acr } ? ( acr_values => join ' ', @{ $self->mfa_acr } ) : ()
+  };
+}
 
 sub factor {
   my ( $self, %arg ) = @_;

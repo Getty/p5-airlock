@@ -32,9 +32,7 @@ if ( ( $mode // '' ) eq '--remove' ) {
     $api->delete_oauth2_provider( $gone->{pk} );
     print "removed  provider airlock-test\n";
   }
-  # the service account authentik makes for a client credentials grant
-  # outlives its provider
-  for my $username (qw( airlock-plain airlock-otp ak-airlock-test-client_credentials )) {
+  for my $username (qw( airlock-plain airlock-otp )) {
     my $user = eval { $api->find_user($username) } or next;
     $api->delete_user( $user->{pk} );
     print "removed  user $username\n";
@@ -88,7 +86,8 @@ my $provider = report( 'provider airlock-test', $api->ensure_oauth2_provider(
   # the device flow and the code exchange the test does afterwards
   grant_types             => [qw( authorization_code refresh_token urn:ietf:params:oauth:grant-type:device_code )],
   redirect_uris           => [ { matching_mode => 'strict', url => 'http://127.0.0.1:1/callback' } ],
-  scopes                  => [qw( openid email profile )],
+  # offline_access so the test can see what a refresh does to auth_time
+  scopes                  => [qw( openid email profile offline_access )],
   signing_key_name        => 'authentik Self-signed Certificate',
   sub_mode                => 'hashed_user_id'
 ) );

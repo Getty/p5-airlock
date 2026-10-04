@@ -111,10 +111,11 @@ findings; `t/90-live-keycloak.t` and `t/91-live-authentik.t` drive the whole
 chain against a real one.
 
 Two differences are worth knowing before you choose. authentik sends one
-constant `acr`, so only `amr` is of any use there. And authentik ignores
-`max_age=0`, which is what `Airlock::Factor::Upstream->reauth_params` offers,
-so sending someone back for a fresh login means ending the authentik session
-first.
+constant `acr`, so only `amr` is of any use there. And `max_age=0`, which is
+what `Airlock::Factor::Upstream->reauth_params` offers, is the one value
+authentik throws away — it tests the number for truth — so
+`Airlock::Upstream::Authentik->reauth_params` sends `prompt=login` instead, and
+takes a `max_age` in seconds for a window rather than a flat demand.
 
 ## QR codes
 

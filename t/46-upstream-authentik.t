@@ -69,14 +69,23 @@ subtest 'max_age against an old session with a fresh token' => sub {
   is( $fresh->verify( { id => 'x', amr => ['mfa'] } ), 0, 'and not at all without auth_time' );
 };
 
-subtest 'what the factor offers for sending someone back' => sub {
-  # authentik ignores max_age, so this is documented as not working there;
-  # the factor still offers it, because it is the OIDC way and a later
-  # authentik may honour it
+subtest 'sending someone back for a fresh login' => sub {
+  # the shared factor offers the OIDC standard, which is the one value
+  # authentik throws away, so the upstream has its own
   is_deeply( $authentik->factor->reauth_params, { max_age => 0 },
-    'reauth_params is max_age alone, since mfa_acr is empty' );
-  is_deeply( Airlock::Upstream::Authentik->new( mfa_acr => [ 'a', 'b' ] )->factor->reauth_params,
-    { max_age => 0, acr_values => 'a b' }, 'and carries acr_values when there are any' );
+    'the factor still offers max_age => 0, as every other provider wants it' );
+
+  is_deeply( $authentik->reauth_params, { prompt => 'login' },
+    'the upstream offers prompt=login, which authentik honours' );
+  is_deeply( $authentik->reauth_params( max_age => 300 ), { max_age => 300 },
+    'or a max_age that is not zero' );
+  is_deeply( Airlock::Upstream::Authentik->new( mfa_acr => [ 'a', 'b' ] )->reauth_params,
+    { prompt => 'login', acr_values => 'a b' }, 'with acr_values when there are any' );
+
+  ok( !eval { $authentik->reauth_params( max_age => 0 ); 1 }, 'a max_age of 0 is refused' );
+  like( $@, qr/authentik ignores it/, 'and says why' );
+  is_deeply( $authentik->reauth_params( max_age => undef ), { prompt => 'login' },
+    'an undef max_age is the same as leaving it out' );
 };
 
 done_testing;
