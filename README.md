@@ -97,10 +97,24 @@ and wrong under a preforking server; it croaks when used across a fork.
 | `Airlock::Factor::TOTP` | RFC 6238, secrets supplied by your application |
 | `Airlock::Factor::Upstream` | the identity provider already checked one (`amr`, `acr`, `auth_time`) |
 
-`Airlock::Upstream::Keycloak` turns Keycloak token claims into a subject. A
-default Keycloak realm does not report a second factor in its tokens; it does
-once the client has the AMR mapper and the flow steps carry reference values.
-`t/keycloak/` has the realm, the setup script and what was observed.
+Two classes turn an identity provider's token claims into a subject, each with
+what was observed at a running instance rather than what the documentation
+promises:
+
+| Class | What the provider does |
+|---|---|
+| `Airlock::Upstream::Keycloak` | says nothing about a second factor until the client has the AMR mapper and the flow steps carry reference values |
+| `Airlock::Upstream::Authentik` | reports it with nothing configured: `amr=pwd` for a password, `amr=pwd,mfa` with TOTP |
+
+`t/keycloak/` and `t/authentik/` hold the fixtures, the setup scripts and the
+findings; `t/90-live-keycloak.t` and `t/91-live-authentik.t` drive the whole
+chain against a real one.
+
+Two differences are worth knowing before you choose. authentik sends one
+constant `acr`, so only `amr` is of any use there. And authentik ignores
+`max_age=0`, which is what `Airlock::Factor::Upstream->reauth_params` offers,
+so sending someone back for a fresh login means ending the authentik session
+first.
 
 ## QR codes
 

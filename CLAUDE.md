@@ -4,6 +4,12 @@ Airlock — embeddable core for approving a waiting request from an already trus
 
 The design is `docs/superpowers/specs/2026-10-02-airlock-design.md`. It is the source of truth for scope and module layout; code that contradicts it is a finding, not a decision.
 
+Two upstream mappings are built, each with a live test behind an environment variable and
+its fixtures in a directory of its own: `Airlock::Upstream::Keycloak` (`t/90`,
+`t/keycloak/`) and `Airlock::Upstream::Authentik` (`t/91`, `t/authentik/`). What a
+provider puts into `acr`, `amr` and `auth_time` is recorded there from a real token.
+Airlock depends on neither provider client at runtime.
+
 ## Delegation
 
 Delegate behavior-relevant code to the right agent instead of touching it yourself —

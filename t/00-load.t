@@ -18,6 +18,7 @@ for (qw(
   Airlock::Role::Endpoints
   Airlock::Store::Memory
   Airlock::Test::Store
+  Airlock::Upstream::Authentik
   Airlock::Upstream::Keycloak
 )) {
   use_ok($_);

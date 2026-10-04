@@ -1,6 +1,18 @@
 Revision history for Airlock
 
 {{$NEXT}}
+    - Airlock::Upstream::Authentik turns an authentik login into an Airlock
+      subject and builds the matching Airlock::Factor::Upstream. authentik
+      reports the second factor with nothing configured: a password login
+      carries amr=pwd, a login with TOTP amr=pwd,mfa. Its one acr value says
+      nothing, and max_age=0 does not make it authenticate again, so a host
+      application that wants a fresh login has to end the authentik session
+      itself; the POD says so
+    - t/91-live-authentik.t drives the whole chain against a real authentik:
+      a device flow through Airlock::Client, a browser login with and without
+      TOTP, an approval through the Airlock core, and the upstream policy
+      holding only for the login with the second factor. t/authentik/ has the
+      fixtures and what was observed
     - Airlock::QR: QR codes as SVG, terminal blocks and data URI, in pure Perl
     - Airlock::Code: user codes, secrets, hashing and constant-time comparison
     - Airlock::Store::Memory and Airlock::Test::Store: the four-sub store contract and its test suite

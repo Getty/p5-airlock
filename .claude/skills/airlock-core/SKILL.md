@@ -60,11 +60,28 @@ States: `pending → approved | denied | expired`, `approved → redeemed` exact
 Core, Code, Policy, store subs with built-in store, `Airlock::Test::Store`,
 Factor::Callback/TOTP/Upstream, issuer sub with opaque default, QR, `to_app`, `handle`,
 Client, Keycloak mapping with live test, examples (Plack, Mojolicious, DBI, DBIO).
-JWT issuer, recovery codes, a Mojolicious plugin and WebAuthn are later phases — do not
-build them early.
+The authentik mapping came after, as the spec's section 7 foresaw ("dieselbe Naht,
+kommen bei Bedarf"). JWT issuer, recovery codes, a Mojolicious plugin and WebAuthn are
+later phases — do not build them early.
 
-## Keycloak
+## Upstreams
 
-`t/90-live-keycloak.t` runs only with `TEST_AIRLOCK_KEYCLOAK_URL`. How Keycloak fills
-`acr` and `amr` is established from a real token, not from documentation or memory, and
-recorded in `Airlock::Upstream::Keycloak`.
+One small class per identity provider, holding the defaults and what a real token was
+observed to contain. How a provider fills `acr` and `amr` is never taken from
+documentation or memory.
+
+| Class | Live test | Fixtures |
+|---|---|---|
+| `Airlock::Upstream::Keycloak` | `t/90-live-keycloak.t`, `TEST_AIRLOCK_KEYCLOAK_URL` | `t/keycloak/` |
+| `Airlock::Upstream::Authentik` | `t/91-live-authentik.t`, `TEST_AIRLOCK_AUTHENTIK_URL` and `_TOKEN` | `t/authentik/` |
+
+- Keycloak says nothing about a second factor until its realm is set up; authentik says
+  it out of the box (`amr=pwd` / `amr=pwd,mfa`).
+- authentik's `acr` is one constant string, so `mfa_acr` stays empty there.
+- authentik ignores `max_age=0`, so `reauth_params` does not force a fresh login; its
+  `auth_time` is the session's, which is what `max_age` on the factor wants.
+- The two classes are the same code with different documentation. A third upstream is
+  the moment to pull a role out of them, not before.
+- The authentik test needs the `p5-www-authentik` checkout for `WWW::Authentik` and its
+  flow executor. Neither is a runtime dependency, neither is in `cpanfile`, and nothing
+  under `lib/` mentions them.
