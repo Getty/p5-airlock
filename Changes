@@ -1,6 +1,6 @@
 Revision history for Airlock
 
-{{$NEXT}}
+0.001     2026-10-04 18:07:00Z
     - Airlock::Upstream::Authentik turns an authentik login into an Airlock
       subject and builds the matching Airlock::Factor::Upstream. authentik
       reports the second factor with nothing configured: a password login
