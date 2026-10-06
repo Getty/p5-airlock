@@ -1,0 +1,32 @@
+---
+class: standard
+created: 2026-10-06T19:18:32Z
+id: 10
+priority: medium
+status: backlog
+tags:
+- bug
+- security
+- client
+- review-2026-10-06
+title: 'Airlock::Client: server-controlled error text reaches the terminal unsanitised'
+updated: 2026-10-06T19:18:32Z
+---
+
+`Airlock::Client` states its own rule at `lib/Airlock/Client.pm:286` ("What the server sent goes to a terminal: nothing but printable ASCII") and applies `_printable` to `verification_uri`, `user_code` and the discovery issuer. The error path skips it:
+
+- `lib/Airlock/Client.pm:305-309` `_reason` returns `$data->{error}` and `$data->{error_description}` verbatim; `start` (line 193) and `poll` (line 227) croak with it.
+- `lib/Airlock/Client.pm:170` puts `$response->{reason}` (the server's status line) into the discovery croak.
+
+A CLI that prints the exception (the normal case for `login`) therefore writes whatever the token endpoint put into `error_description` to the terminal, including ESC sequences.
+
+Reproduce:
+
+    perl -Ilib -MAirlock::Client -e 'my $c=Airlock::Client->new(client_id=>"x",device_endpoint=>"http://h/d",token_endpoint=>"http://h/t"); print $c->_reason({status=>400,reason=>"Bad"},{error=>"x\e[31mEVIL",error_description=>"a\e]0;pwn\a"})' | od -c
+
+shows the raw `033 [ 3 1 m` and `033 ] 0 ; p w n \a` bytes.
+
+Done: `_reason` (error, error_description, status reason) and the discovery-failure message go through `_printable`; a test in `t/70-client.t` feeds control characters through `start` and `poll` and sees only `?`.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
