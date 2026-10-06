@@ -1,0 +1,26 @@
+---
+class: standard
+created: 2026-10-06T19:18:42Z
+id: 11
+priority: low
+status: backlog
+tags:
+- bug
+- client
+- diagnostics
+- review-2026-10-06
+title: Airlock::Client->poll blames an expired code when every poll failed at the
+  transport
+updated: 2026-10-06T19:18:42Z
+---
+
+`lib/Airlock/Client.pm:223-226` treats HTTP::Tiny's internal status 599 like `slow_down`: add five seconds and try again. That is the documented back-off for a connection failure, but 599 is also what HTTP::Tiny returns for a failed certificate verification, a DNS error or a refused connection that will never heal. In that case the loop runs for the whole lifetime of the code (default 600 s) and then croaks at line 229 with
+
+    ->poll gave up: the code expired before anyone approved it
+
+which names the wrong cause; the real one (`$response->{content}` of the last 599) is dropped. `t/70-client.t:192` only covers 599 followed by success.
+
+Done: the last transport error is remembered and the give-up message carries it (for example `... gave up after N failed requests, last: <content of the 599>`), passed through `_printable`; a test covers 599 on every poll until the deadline.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
