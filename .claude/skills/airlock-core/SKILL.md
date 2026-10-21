@@ -64,6 +64,19 @@ The authentik mapping came after, as the spec's section 7 foresaw ("dieselbe Nah
 kommen bei Bedarf"). JWT issuer, recovery codes, a Mojolicious plugin and WebAuthn are
 later phases — do not build them early.
 
+## Review and release checks
+
+- **A change that weakens an invariant needs the maintainer.** The list above is not a
+  judgement call: `device_code` reaches the store only hashed, redeem happens exactly once
+  through the conditional `update`, comparisons are constant-time, nothing secret ends up in
+  logs or `on_event` payloads.
+- **The live tests are opt-in and single-shot.** `t/90-live-keycloak.t` needs
+  `TEST_AIRLOCK_KEYCLOAK_URL`; `t/91-live-authentik.t` needs `TEST_AIRLOCK_AUTHENTIK_URL` and
+  `TEST_AIRLOCK_AUTHENTIK_TOKEN`. Never enable them in a fanned-out or parallel context — they
+  hit real servers and the authentik instance rate-limits.
+- **`prove -lr t`, not `prove -l t`.** Plain `prove -l t/` is non-recursive and silently skips
+  the subdirectory tests.
+
 ## Upstreams
 
 One small class per identity provider, holding the defaults and what a real token was

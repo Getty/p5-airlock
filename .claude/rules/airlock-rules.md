@@ -1,9 +1,8 @@
 # Airlock House Rules
 
-Apply to every task in this repository unless explicitly overridden. Bias: caution over
-speed on non-trivial work; use judgment on trivial tasks. Loaded automatically at launch
-(same priority as `CLAUDE.md`). Subagents get their discipline from skills force-loaded via
-`briefing.skills` — this file is for the orchestrating agent.
+Apply to every task in this repository unless explicitly overridden. Bias: caution over speed
+on non-trivial work. Loaded automatically at launch (same priority as `CLAUDE.md`); subagents get
+their discipline from `briefing.skills` — this file is for the orchestrating agent.
 
 ## Engineering discipline
 
@@ -20,13 +19,10 @@ speed on non-trivial work; use judgment on trivial tasks. Loaded automatically a
 
 ## Delegation
 
-This rule depends on whether the Agent/Task tool is available to you.
-
-- **You can spawn subagents** (orchestrating main agent): do NOT touch behavior-relevant
-  code yourself — delegate to this repo's worker. Your lane: coordinate, inspect, plan,
-  review diffs, run tests, edit non-behavioral docs. When in doubt, delegate.
-  Only the `airlock-*` agents get their skills force-loaded via `briefing.skills`; you
-  get no briefing and would touch internals with too little context.
+- **You can spawn subagents** (orchestrating main agent): do NOT touch behavior-relevant code
+  yourself — delegate to this repo's worker. Your lane: coordinate, inspect, plan, review diffs,
+  run tests, edit non-behavioral docs. When in doubt, delegate. Only the `airlock-*` agents get
+  their skills force-loaded via `briefing.skills`; you get no briefing.
 
   | Task | Agent |
   |---|---|
@@ -46,43 +42,39 @@ to `review`; you then dispatch `airlock-release-manager` to cut the commit and c
 
 ## Coordination — karr board
 
-Ticket coordination is the orchestrating agent's job, so `karr` is always in scope —
-don't invoke the `kanban-issues-karr-coordination` skill first, just use it. Git-native kanban; state lives in
-`refs/karr/*`; this repo has its own board.
+Ticket coordination is the orchestrating agent's job, so `karr` is always in scope — don't invoke
+the `kanban-issues-karr-coordination` skill first, just use it. State lives in `refs/karr/*`; this
+repo has its own board.
 
 - `karr list --compact` / `karr board` — open work · `karr show ID` — detail
 - `karr create "Title" --priority high --tags a,b --body '…'` — new ticket
 - `karr move ID in-progress --claim NAME` — start · `karr handoff ID --claim NAME --note "…"` — to review
 - mutating commands auto-sync; `karr sync --pull|--push` for explicit exchange
 
-**Serialize board mutations when fanning out.** Keep implementation work parallel, but
-collect results and then loop `karr move`/`handoff`/`sync` sequentially — concurrent board
-writes are a resource event, not a cheap command (this shared box has OOM-rebooted on it).
-No background poll loops on the board: check once, act on the result.
+**Serialize board mutations when fanning out.** Keep implementation work parallel, but collect
+results and then loop `karr move`/`handoff`/`sync` sequentially — concurrent board writes are a
+resource event (this shared box has OOM-rebooted on it). No background poll loops: check once, act.
 
 ## Release — never without permission
 
-`prove -lr t` and `dzil build`/`dzil test` are fine anytime. `dzil release` and any CPAN
-upload are STRICTLY forbidden without the maintainer's explicit go-ahead — even if a plan
-or STATUS document lists "release" as the next step. For anything heading toward release:
-stop and ask.
+`prove -lr t` and `dzil build`/`dzil test` are fine anytime. `dzil release` and any CPAN upload
+are STRICTLY forbidden without the maintainer's explicit go-ahead — even if a plan or STATUS
+document lists "release" as the next step. For anything heading toward release: stop and ask.
 
 ## Public issues — never act without instruction
 
-Two trackers, two universes. **karr** is the internal agent work board, churned freely.
-A public tracker (GitHub) carries real humans' issues, written under the maintainer's
-account. Never act on a public issue on your own initiative — not even to read it. No
-listing, viewing, commenting, editing, closing, or creating unless the user explicitly
-says to handle a specific issue.
+Two trackers, two universes: **karr** is the internal agent work board, churned freely; a public
+tracker (GitHub) carries real humans' issues, written under the maintainer's account. Never act
+on a public issue on your own initiative — not even to read it. No listing, viewing, commenting,
+editing, closing or creating unless the user explicitly says to handle a specific issue.
 
 ## Project-specific hazards
 
 - **Airlock ships no surface and no drivers.** No HTML, no templates, no DBI, no Plack and
   no Mojolicious at runtime. A convenience that needs one of them belongs in `examples/`.
-- **Security invariants are not negotiable in review.** `device_code` only hashed in the
-  store, redeem exactly once through the conditional `update`, constant-time comparisons,
-  no codes/tokens/secrets in logs or events. A change that weakens one needs the
-  maintainer, not a judgment call.
+- **Security invariants are not negotiable in review.** `device_code` only hashed in the store,
+  redeem exactly once through the conditional `update`, constant-time comparisons, no codes,
+  tokens or secrets in logs or events. A change that weakens one needs the maintainer.
 - **Live test hits a real Keycloak.** `t/90-live-keycloak.t` runs only with
   `TEST_AIRLOCK_KEYCLOAK_URL` set. Never enable it in a fanned-out or parallel context.
 - **Test runner trap.** Plain `prove -l t/` is non-recursive; always use `prove -lr t` so
@@ -90,7 +82,7 @@ says to handle a specific issue.
 
 ## Perl specifics — reference, don't restate
 
-Module loading, Moo patterns, dependency pinning, `[@Author::GETTY]` release metadata,
-POD directives, and house style live in skills `getty-perl-core`, `getty-perl-moo`,
-`perl-release-dist-ini`, `getty-perl-release-author-getty`, and `airlock-core` (force-loaded
-for `airlock-*` agents). Do not duplicate that content here.
+Module loading, Moo patterns, dependency pinning, `[@Author::GETTY]` release metadata, POD and
+house style live in skills `getty-perl-core`, `getty-perl-moo`, `perl-release-dist-ini`,
+`getty-perl-release-author-getty` and `airlock-core` (force-loaded per lane via `briefing.skills`).
+Do not duplicate that content here.
