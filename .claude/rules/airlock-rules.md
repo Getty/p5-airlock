@@ -1,8 +1,9 @@
 # Airlock House Rules
 
 Apply to every task in this repository unless explicitly overridden. Bias: caution over speed
-on non-trivial work. Loaded automatically at launch (same priority as `CLAUDE.md`); subagents get
-their discipline from `briefing.skills` — this file is for the orchestrating agent.
+on non-trivial work; use judgment on trivial tasks. Loaded automatically at launch (same
+priority as `CLAUDE.md`); subagents get their discipline from `briefing.skills` — this file is
+for the orchestrating agent.
 
 ## Engineering discipline
 
@@ -74,7 +75,7 @@ editing, closing or creating unless the user explicitly says to handle a specifi
   no Mojolicious at runtime. A convenience that needs one of them belongs in `examples/`.
 - **Security invariants are not negotiable in review.** `device_code` only hashed in the store,
   redeem exactly once through the conditional `update`, constant-time comparisons, no codes,
-  tokens or secrets in logs or events. A change that weakens one needs the maintainer.
+  tokens or secrets in logs or events. A change that weakens one needs the maintainer, not a judgment call.
 - **Live test hits a real Keycloak.** `t/90-live-keycloak.t` runs only with
   `TEST_AIRLOCK_KEYCLOAK_URL` set. Never enable it in a fanned-out or parallel context.
 - **Test runner trap.** Plain `prove -l t/` is non-recursive; always use `prove -lr t` so
