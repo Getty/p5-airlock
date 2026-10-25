@@ -195,6 +195,45 @@ subtest 'poll: a connection failure is retried, not fatal' => sub {
   is_deeply( $slept, [ 5, 10, 15 ], 'backing off by five seconds each time' );
 };
 
+subtest 'poll: when every request fails at the transport, the give-up names that' => sub {
+  my $polls = 0;
+  my ( undef, $client ) = fixture( app => sub { $polls++; [ 599, [], [ "Could not connect: \e[31mrefused\e]0;pwn\a" ] ] } );
+  ok( !eval { $client->poll( { device_code => 'd', interval => 5, expires_in => 600 } ); 1 }, 'gives up' );
+  like( $@, qr/gave up after \d+ failed requests, last: Could not connect: \?\[31mrefused\?\]0;pwn\? at /, 'and carries the last transport error, printable' );
+  unlike( $@, qr/expired before anyone approved/, 'not the wrong cause' );
+  like( $@, qr/gave up after \Q$polls\E failed requests/, 'with the number of requests' );
+
+  my @reply = ( 599, 400 );
+  my ( undef, $mixed ) = fixture( app => sub { my $s = shift @reply // 400; [ $s, [], [ $s == 599 ? 'boom' : encode_json( { error => 'authorization_pending' } ) ] ] } );
+  ok( !eval { $mixed->poll( { device_code => 'd', interval => 5, expires_in => 60 } ); 1 }, 'a pending answer after a failure' );
+  like( $@, qr/expired before anyone approved it/, 'still means an expired code' );
+};
+
+subtest 'server-controlled error text never reaches the terminal raw' => sub {
+  my $evil = { error => "x\e[31mEVIL", error_description => "a\e]0;pwn\a" };
+  my ( undef, $client ) = fixture( app => sub { [ 400, [], [ encode_json($evil) ] ] } );
+  ok( !eval { $client->start; 1 }, 'start croaks' );
+  like( $@, qr/->start failed: x\?\[31mEVIL \(a\?\]0;pwn\?\) at /, 'with control characters turned into ?' );
+  unlike( $@, qr/[^\x20-\x7E\n]/, 'start: nothing but printable ASCII' );
+  ok( !eval { $client->poll( { device_code => 'd', interval => 5, expires_in => 60 } ); 1 }, 'poll croaks' );
+  like( $@, qr/->poll failed: x\?\[31mEVIL \(a\?\]0;pwn\?\) at /, 'with control characters turned into ?' );
+  unlike( $@, qr/[^\x20-\x7E\n]/, 'poll: nothing but printable ASCII' );
+
+  {
+    package StatusUA;
+    our @ISA = ('HTTP::Tiny');
+    sub get      { +{ success => '', status => 502, reason => "Bad\e[2JGateway", content => '' } }
+    sub post_form { +{ success => '', status => 502, reason => "Bad\e[2JGateway", content => '' } }
+  }
+  my $status = Airlock::Client->new( client_id => 'cli', issuer => 'http://id.test', ua => StatusUA->new );
+  ok( !eval { $status->device_endpoint; 1 }, 'a failed discovery croaks' );
+  like( $@, qr/discovery failed: 502 Bad\?\[2JGateway for /, 'with the status line, printable' );
+  unlike( $@, qr/[^\x20-\x7E\n]/, 'discovery: nothing but printable ASCII' );
+  my $plain = Airlock::Client->new( client_id => 'cli', device_endpoint => 'http://h/d', token_endpoint => 'http://h/t', ua => StatusUA->new );
+  ok( !eval { $plain->start; 1 }, 'start without an error body croaks' );
+  like( $@, qr/->start failed: 502 Bad\?\[2JGateway at /, 'with the status line, printable' );
+};
+
 subtest 'prompt_text' => sub {
   my ( undef, $client ) = fixture();
   my $start = { verification_uri => 'https://example.org/airlock', user_code => 'BCDF-GHJK', verification_uri_complete => 'https://example.org/airlock?user_code=BCDF-GHJK' };

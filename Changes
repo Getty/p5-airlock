@@ -1,6 +1,15 @@
 Revision history for Airlock
 
 {{$NEXT}}
+    - Airlock::Client keeps what the server sends out of the terminal on the
+      error path too: the error and error_description of a refusal, the
+      status line of a failed request and of a failed discovery now reach
+      the exception as printable ASCII only, as verification_uri and
+      user_code already did
+    - Airlock::Client->poll no longer blames an expired code when every
+      request failed at the connection (a refused connection, a DNS error, a
+      failed certificate check): it gives up with the number of failed
+      requests and the last error
 
 0.001     2026-10-04 18:07:00Z
     - Airlock::Upstream::Authentik turns an authentik login into an Airlock

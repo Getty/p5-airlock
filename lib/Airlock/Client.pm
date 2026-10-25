@@ -167,7 +167,7 @@ sub _build__discovery {
   croak __PACKAGE__.'->new needs issuer, or device_endpoint and token_endpoint' unless $self->has_issuer;
   my $url      = $self->issuer =~ s{/+\z}{}r.'/.well-known/openid-configuration';
   my $response = $self->ua->get( $url, { headers => { Accept => 'application/json' } } );
-  croak __PACKAGE__.' discovery failed: '.$response->{status}.' '.$response->{reason}.' for '.$url
+  croak __PACKAGE__.' discovery failed: '.$self->_printable( $response->{status}.' '.( $response->{reason} // '' ) ).' for '.$url
     unless $response->{success};
   my $data = $self->_decode($response);
   croak __PACKAGE__.' discovery returned no JSON object for '.$url unless %$data;
@@ -209,6 +209,7 @@ sub poll {
   my ( $self, $start ) = @_;
   my $interval = $self->_seconds( $start->{interval}, 5 );
   my $deadline = $self->now->() + $self->_seconds( $start->{expires_in}, 600 );
+  my ( $failures, $last ) = ( 0, '' );
   while ( ( my $left = $deadline - $self->now->() ) > 0 ) {
     $self->sleep->( $interval < $left ? $interval : $left );
     my $response = $self->_post( $self->token_endpoint, {
@@ -217,6 +218,13 @@ sub poll {
       client_id   => $self->client_id
     } );
     my $data = $self->_decode($response);
+    if ( $response->{status} == 599 ) {
+      $failures++;
+      $last = $response->{content} // '';
+    }
+    else {
+      $failures = 0;
+    }
     return $data if $response->{success} && defined $data->{access_token};
     my $error = $data->{error} // '';
     next if $error eq 'authorization_pending';
@@ -226,6 +234,7 @@ sub poll {
     }
     croak __PACKAGE__.'->poll failed: '.$self->_reason( $response, $data );
   }
+  croak __PACKAGE__.'->poll gave up after '.$failures.' failed requests, last: '.$self->_printable($last) if $failures;
   croak __PACKAGE__.'->poll gave up: the code expired before anyone approved it';
 }
 
@@ -237,7 +246,10 @@ Waits for the approval. Sleeps the interval the server asked for, never past
 the lifetime of the code, adds five seconds on every C<slow_down> and on every
 connection failure, and returns the token response. Croaks on
 C<access_denied>, C<expired_token>, any other error, and when the code's
-lifetime runs out.
+lifetime runs out. When the lifetime runs out while the last requests all
+failed at the connection, the exception names how many failed and the last
+error, not an expired code. Error text from the server reaches exceptions as
+printable ASCII only.
 
 =cut
 
@@ -304,9 +316,9 @@ sub _decode {
 
 sub _reason {
   my ( $self, $response, $data ) = @_;
-  return $data->{error}.( defined $data->{error_description} ? ' ('.$data->{error_description}.')' : '' )
+  return $self->_printable( $data->{error}.( defined $data->{error_description} ? ' ('.$data->{error_description}.')' : '' ) )
     if defined $data->{error} && !ref $data->{error};
-  return $response->{status}.' '.( $response->{reason} // '' );
+  return $self->_printable( $response->{status}.' '.( $response->{reason} // '' ) );
 }
 
 1;
