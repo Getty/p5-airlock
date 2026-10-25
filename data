@@ -1,0 +1,26 @@
+---
+claimed_at: 2026-10-25T05:23:40Z
+claimed_by: offen-2610
+class: standard
+completed: 2026-10-25T05:23:40Z
+created: 2026-10-02T19:24:51Z
+id: 1
+priority: high
+started: 2026-10-02T20:37:00Z
+status: done
+tags:
+- qr
+- spike
+title: 'QR proof: encoder output reads back with an independent decoder'
+updated: 2026-10-25T05:23:40Z
+---
+
+Prove that the QR matrix from GD::Barcode::QRcode (pure Perl, no GD at runtime) decodes back to the input with an independent decoder, for a verification URI and an otpauth URI. If it fails, switch the encoder before anything builds on it. Spec: docs/superpowers/specs/2026-10-02-airlock-design.md section 6 (QR).
+
+ Plan: docs/superpowers/plans/2026-10-02-airlock-phase-1.md Task 1. Local proof done 2026-10-02 with jsQR; t/11-qr-readback.t (zbarimg) is still unrun.
+
+ Implemented in e83b806. Matrices read back with jsQR locally; t/11-qr-readback.t needs zbarimg and has not run yet (CI installs zbar-tools).
+
+2026-10-25 05:13 t/11-qr-readback.t in perl:5.40 container with zbar-tools: 8/8 ok (verification URI L/M/Q/H, otpauth, long, non-ASCII, short). No code change needed. Also found: t/81-example-store-dbio.t fails with installed DBIO (Schema declares no driver, ADR 0067) - unrelated to this work, not fixed.
+
+2026-10-25 05:23 t/81 fix: examples Schema now 'use DBIO Schema, -sqlite' (ADR 0067); commit 4b7da7a. Full suite green: 22 files, 153 tests, live tests skipped.
