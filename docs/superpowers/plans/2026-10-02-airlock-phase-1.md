@@ -2,100 +2,100 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Airlock Phase 1 bauen: den einbettbaren Kern für den OAuth-2.0-Device-Grant (RFC 8628, Server-Seite) mit Step-up-Faktoren, QR-Codes, den zwei Maschinen-Endpunkten als PSGI und für `HTTP::Request`, einem Device-Flow-Client, Beispielen und einer minimalen, live getesteten Keycloak-Anbindung.
+**Goal:** Build Airlock phase 1: the embeddable core for the OAuth 2.0 device grant (RFC 8628, server side) with step-up factors, QR codes, the two machine endpoints as PSGI and for `HTTP::Request`, a device flow client, examples and a minimal, live-tested Keycloak integration.
 
-**Architecture:** `Airlock` ist eine Moo-Klasse ohne Web-Framework. Sie bekommt Werte herein und gibt `Airlock::Result`-Objekte heraus. Alles Austauschbare kommt von außen: der Store als vier Coderefs, Faktoren als Objekte mit der Rolle `Airlock::Factor`, der Issuer als Coderef. Die HTTP-Schicht ist eine einzige Methode `respond`, um die `to_app` (PSGI) und `Airlock::HTTPMessage` dünne Hüllen legen.
+**Architecture:** `Airlock` is a Moo class without a web framework. It takes values in and hands `Airlock::Result` objects out. Everything replaceable comes from outside: the store as four coderefs, factors as objects with the role `Airlock::Factor`, the issuer as a coderef. The HTTP layer is a single method `respond`, around which `to_app` (PSGI) and `Airlock::HTTPMessage` put thin wrappers.
 
-**Tech Stack:** Perl 5.20+, Moo, Types::Standard, namespace::autoclean, Crypt::URandom, Digest::SHA, JSON::MaybeXS, GD::Barcode (nur der reine-Perl-QR-Encoder), HTTP::Tiny. Dist::Zilla mit `[@Author::GETTY]`.
+**Tech Stack:** Perl 5.20+, Moo, Types::Standard, namespace::autoclean, Crypt::URandom, Digest::SHA, JSON::MaybeXS, GD::Barcode (only the pure-Perl QR encoder), HTTP::Tiny. Dist::Zilla with `[@Author::GETTY]`.
 
-**Spec:** `docs/superpowers/specs/2026-10-02-airlock-design.md` (Revision 3). Der Plan setzt die Spec um; wer eine Aufgabe ausführt, liest den zugehörigen Spec-Abschnitt mit.
+**Spec:** `docs/superpowers/specs/2026-10-02-airlock-design.md` (revision 3). The plan implements the spec; whoever carries out a task reads the matching spec section along with it.
 
-## Ausführung
+## Execution
 
-Ausgeführt am 2026-10-02: Aufgaben 1 bis 8 und die Schritte 1 bis 7 von Aufgabe 9, ein
-Commit pro Aufgabe (`e83b806` bis `9e506b9`). Danach hat ein unabhängiger Review Mängel
-gefunden, die in einem eigenen Commit behoben sind; der Code im Repo weicht deshalb an
-diesen Stellen von den Listings unten ab (Store-Inkrement, `verify`/`commit` bei Faktoren,
-Client-Grenzen, Beispiele nur per POST). Maßgeblich ist das Repo, nicht dieses Dokument.
-Der Keycloak-Live-Test lief gegen Keycloak 26.8.0; Befund in `t/keycloak/README.md`.
+Executed on 2026-10-02: tasks 1 to 8 and steps 1 to 7 of task 9, one
+commit per task (`e83b806` to `9e506b9`). After that an independent review found flaws
+that are fixed in a separate commit; the code in the repo therefore differs from the
+listings below at those places (store increment, `verify`/`commit` for factors,
+client limits, examples POST-only). The repo is authoritative, not this document.
+The Keycloak live test ran against Keycloak 26.8.0; findings in `t/keycloak/README.md`.
 
-## Stand des Codes in diesem Plan
+## State of the code in this plan
 
-Der gesamte Code dieses Plans ist am 2026-10-02 als Prototyp außerhalb des Repos gelaufen: `prove -lr t` mit 133 Tests grün, `dzil test` im Endzustand grün (inklusive POD-Syntax nach dem Weaving). Zwei Dinge sind dabei **nicht** gelaufen und deshalb die Stellen, an denen mit Abweichungen zu rechnen ist:
+All the code in this plan ran as a prototype outside the repo on 2026-10-02: `prove -lr t` green with 133 tests, `dzil test` green in the final state (including POD syntax after weaving). Two things did **not** run, and they are therefore the places where deviations are to be expected:
 
-- `t/11-qr-readback.t` braucht `zbarimg`, das auf der Entwicklungsmaschine fehlt. Dieselben Matrizen aus `Airlock::QR` wurden ersatzweise mit jsQR zurückgelesen (20 von 20 Fälle, alle vier Fehlerkorrektur-Stufen). Der Test selbst ist ungelaufen.
-- Aufgabe 9 (Keycloak): `t/90-live-keycloak.t` und `t/keycloak/realm.json` sind ohne laufendes Keycloak geschrieben. Die Realm-Datei und die Standardwerte von `Airlock::Upstream::Keycloak` sind Annahmen, bis der Live-Test sie bestätigt.
+- `t/11-qr-readback.t` needs `zbarimg`, which is missing on the development machine. The same matrices from `Airlock::QR` were read back with jsQR instead (20 of 20 cases, all four error correction levels). The test itself has not run.
+- Task 9 (Keycloak): `t/90-live-keycloak.t` and `t/keycloak/realm.json` were written without a running Keycloak. The realm file and the defaults of `Airlock::Upstream::Keycloak` are assumptions until the live test confirms them.
 
 ## Global Constraints
 
-- Keine Oberfläche: kein HTML, keine Templates, kein CSS unter `lib/`. HTML gibt es nur in `examples/`.
-- Laufzeit-Abhängigkeiten sind genau die im `cpanfile` aus Aufgabe 1. Kein DBI, kein Plack, kein Mojolicious unter `requires`. `HTTP::Message` ist `recommends` und wird nur von `Airlock::HTTPMessage` geladen.
-- Kein `require` zum verzögerten Laden unter `lib/`. Jede Abhängigkeit steht als `use` am Dateianfang. (In Tests ist `require` in einem `BEGIN`-Block als Skip-Wächter für optionale Beispiel-Abhängigkeiten erlaubt.)
-- Ein Paket pro Datei, jede Datei unter `lib/` mit `# ABSTRACT:` und `our $VERSION = '0.001';`.
-- `croak` statt `die`, Meldung beginnt mit `__PACKAGE__`. Gewöhnliche Fehlschläge sind keine Exceptions, sondern ein `Airlock::Result` mit `ok => 0`.
-- Zeit kommt ausschließlich über das injizierte `now`. Kein `time()` außerhalb der `now`-Defaults, kein `sleep` in Tests.
-- `device_code` und Tokens erreichen den Store nur als SHA-256. Vergleiche von Geheimnissen laufen über `Airlock::Code->equals`.
-- Nichts Geheimes in Events: keine Codes, keine Tokens, keine Faktor-Eingaben.
-- Fehlerantworten der Endpunkte nach RFC 8628: HTTP 400 mit `error`.
-- `update` im Store ist die einzige Operation, die atomar sein muss, und trägt immer den erwarteten alten Zustand.
-- Jede `.t`-Datei beginnt mit `#!/usr/bin/env perl`, `use strict; use warnings; use Test::More;` und endet mit `done_testing;`.
-- Tests laufen mit `prove -lr t`, immer rekursiv.
-- **Niemand außer `airlock-release-manager` committet.** Jede Aufgabe endet mit einem commit-fertigen Baum und einer Übergabe; der dort genannte Commit-Betreff und die `Changes`-Zeile sind Vorschläge für den Release-Manager.
+- No user interface: no HTML, no templates, no CSS under `lib/`. HTML exists only in `examples/`.
+- Runtime dependencies are exactly those in the `cpanfile` from task 1. No DBI, no Plack, no Mojolicious under `requires`. `HTTP::Message` is `recommends` and is loaded only by `Airlock::HTTPMessage`.
+- No `require` for deferred loading under `lib/`. Every dependency is a `use` at the top of the file. (In tests, `require` in a `BEGIN` block is allowed as a skip guard for optional example dependencies.)
+- One package per file, every file under `lib/` with `# ABSTRACT:` and `our $VERSION = '0.001';`.
+- `croak` instead of `die`, the message starts with `__PACKAGE__`. Ordinary failures are not exceptions but an `Airlock::Result` with `ok => 0`.
+- Time comes exclusively through the injected `now`. No `time()` outside the `now` defaults, no `sleep` in tests.
+- `device_code` and tokens reach the store only as SHA-256. Comparisons of secrets go through `Airlock::Code->equals`.
+- Nothing secret in events: no codes, no tokens, no factor input.
+- Endpoint error responses per RFC 8628: HTTP 400 with `error`.
+- `update` in the store is the only operation that has to be atomic, and always carries the expected old state.
+- Every `.t` file starts with `#!/usr/bin/env perl`, `use strict; use warnings; use Test::More;` and ends with `done_testing;`.
+- Tests run with `prove -lr t`, always recursive.
+- **Nobody but `airlock-release-manager` commits.** Every task ends with a commit-ready tree and a handover; the commit subject and the `Changes` line named there are suggestions for the release manager.
 
 ## Review Focus
 
-Fünf Eingaben, die die Spec nicht ausbuchstabiert und die jemanden im Betrieb treffen würden. Jede ist durch einen Test in der genannten Aufgabe festgenagelt.
+Five inputs that the spec does not spell out and that would hit someone in production. Each one is nailed down by a test in the named task.
 
-1. **Zwei Polls rennen um dieselbe Bestätigung.** Der zweite hat die Zeile gelesen, bevor der erste eingelöst hat. Erwartet: genau ein Token. Test `two polls racing for one approval get one token` in `t/50-core.t` (Aufgabe 5).
-2. **Doppelklick auf „Bestätigen“.** Erwartet: beide Anfragen melden Erfolg, es gibt eine Bestätigung und ein Event, und eine dritte Person erfährt über den Code nichts. Test `a double click on approve is not an error` in `t/50-core.t` (Aufgabe 5).
-3. **Der eingebaute Speicher unter einem Prefork-Server.** Ohne Schutz wären Codes zufällig unbekannt. Erwartet: lauter Abbruch mit Hinweis auf einen gemeinsamen Store. Test `refuses to be used across a fork` in `t/30-store-memory.t` (Aufgabe 3).
-4. **Ein Server schickt dem Client Unsinn als `interval` oder `expires_in`** (0, negativ, Text, Referenz). Erwartet: Standardwerte statt einer Endlosschleife ohne Pause. Test `poll: nonsense from the server does not become a busy loop` in `t/70-client.t` (Aufgabe 7).
-5. **Was Menschen und Programme wirklich eintippen und übergeben:** Nicht-ASCII-Buchstaben, ein Megabyte Text, NUL-Bytes als Code; eine Subject-ID, die nicht in die Spalte passt. Erwartet: „kein gültiger Code“ beziehungsweise ein klarer `croak` vor dem Schreiben. Tests `normalize: what people and programs really send` in `t/20-code.t` (Aufgabe 2) und `a subject id that does not fit` in `t/50-core.t` (Aufgabe 5).
+1. **Two polls race for the same approval.** The second has read the row before the first has redeemed. Expected: exactly one token. Test `two polls racing for one approval get one token` in `t/50-core.t` (task 5).
+2. **Double click on "Confirm".** Expected: both requests report success, there is one approval and one event, and a third person learns nothing through the code. Test `a double click on approve is not an error` in `t/50-core.t` (task 5).
+3. **The built-in storage under a prefork server.** Without protection, codes would be randomly unknown. Expected: a loud abort with a hint towards a shared store. Test `refuses to be used across a fork` in `t/30-store-memory.t` (task 3).
+4. **A server sends the client nonsense as `interval` or `expires_in`** (0, negative, text, reference). Expected: defaults instead of an endless loop without a pause. Test `poll: nonsense from the server does not become a busy loop` in `t/70-client.t` (task 7).
+5. **What people and programs really type and pass in:** non-ASCII letters, a megabyte of text, NUL bytes as a code; a subject ID that does not fit the column. Expected: "not a valid code" or a clear `croak` before writing, respectively. Tests `normalize: what people and programs really send` in `t/20-code.t` (task 2) and `a subject id that does not fit` in `t/50-core.t` (task 5).
 
-## Dateien
+## Files
 
-| Datei | Verantwortung | Aufgabe |
+| File | Responsibility | Task |
 |---|---|---|
-| `cpanfile`, `.github/workflows/ci.yml` | Abhängigkeiten, `zbar-tools` in der CI | 1 |
-| `lib/Airlock/QR.pm` | QR-Matrix, SVG, Terminal, Data-URI | 1 |
-| `lib/Airlock/Code.pm` | Codes erzeugen, normalisieren, hashen, vergleichen | 2 |
-| `lib/Airlock/Store/Memory.pm` | eingebauter Speicher, Referenz für den Store-Vertrag | 3 |
-| `lib/Airlock/Test/Store.pm` | Vertrags-Suite für eigene Store-Subs | 3 |
-| `lib/Airlock/Factor.pm` | Rolle für zweite Faktoren | 4 |
-| `lib/Airlock/Factor/Callback.pm`, `TOTP.pm`, `Upstream.pm` | die drei Faktoren | 4 |
-| `lib/Airlock/Policy.pm` | welche Faktoren eine Bestätigung braucht | 4 |
-| `lib/Airlock/Result.pm` | Ergebnis einer Operation, RFC-Form | 5 |
-| `lib/Airlock.pm` | Kern: `open`, `inspect`, `requirements`, `approve`, `deny`, `redeem`, Tokens | 5 |
-| `t/lib/AirlockTest.pm` | Test-Fixture mit stellbarer Uhr | 5 |
+| `cpanfile`, `.github/workflows/ci.yml` | Dependencies, `zbar-tools` in CI | 1 |
+| `lib/Airlock/QR.pm` | QR matrix, SVG, terminal, data URI | 1 |
+| `lib/Airlock/Code.pm` | Generate, normalize, hash and compare codes | 2 |
+| `lib/Airlock/Store/Memory.pm` | built-in storage, reference for the store contract | 3 |
+| `lib/Airlock/Test/Store.pm` | Contract suite for your own store subs | 3 |
+| `lib/Airlock/Factor.pm` | Role for second factors | 4 |
+| `lib/Airlock/Factor/Callback.pm`, `TOTP.pm`, `Upstream.pm` | the three factors | 4 |
+| `lib/Airlock/Policy.pm` | which factors an approval needs | 4 |
+| `lib/Airlock/Result.pm` | Result of an operation, RFC shape | 5 |
+| `lib/Airlock.pm` | Core: `open`, `inspect`, `requirements`, `approve`, `deny`, `redeem`, tokens | 5 |
+| `t/lib/AirlockTest.pm` | Test fixture with a settable clock | 5 |
 | `lib/Airlock/Role/Endpoints.pm` | `respond`, `parse_form`, `to_app` | 6 |
 | `lib/Airlock/HTTPMessage.pm` | `HTTP::Request` → `HTTP::Response` | 6 |
-| `lib/Airlock/Client.pm` | Device-Flow-Client | 7 |
-| `examples/` | Plack- und Mojolicious-App, Store mit DBI und DBIO, CLI | 8 |
-| `README.md` | Einstieg | 8 |
-| `lib/Airlock/Upstream/Keycloak.pm`, `t/keycloak/` | Keycloak-Abbildung, Realm, Live-Test | 9 |
+| `lib/Airlock/Client.pm` | Device flow client | 7 |
+| `examples/` | Plack and Mojolicious app, store with DBI and DBIO, CLI | 8 |
+| `README.md` | Entry point | 8 |
+| `lib/Airlock/Upstream/Keycloak.pm`, `t/keycloak/` | Keycloak mapping, realm, live test | 9 |
 
-Reihenfolge und Abhängigkeiten: 1, 2 und 3 sind voneinander unabhängig. 4 braucht 2. 5 braucht 2, 3 und 4. 6 braucht 5. 7 braucht 1 und 6. 8 braucht 6 und 7. 9 braucht 4 und 7 und zusätzlich ein laufendes Keycloak.
+Order and dependencies: 1, 2 and 3 are independent of each other. 4 needs 2. 5 needs 2, 3 and 4. 6 needs 5. 7 needs 1 and 6. 8 needs 6 and 7. 9 needs 4 and 7 and additionally a running Keycloak.
 
-Zuordnung zu den karr-Karten des Boards: Aufgabe 1 → Karte 1, Aufgabe 2 → Karte 9, Aufgabe 3 → Karte 3, Aufgabe 4 → Karte 4, Aufgabe 5 → Karte 2, Aufgabe 6 → Karte 5, Aufgabe 7 → Karte 6, Aufgabe 8 → Karte 8, Aufgabe 9 → Karte 7.
+Mapping to the karr cards on the board: task 1 → card 1, task 2 → card 9, task 3 → card 3, task 4 → card 4, task 5 → card 2, task 6 → card 5, task 7 → card 6, task 8 → card 8, task 9 → card 7.
 
 ---
 
-### Task 1: Abhängigkeiten und `Airlock::QR`
+### Task 1: Dependencies and `Airlock::QR`
 
-Spec: Abschnitt 6 (QR). Der Nachweis, dass der Encoder echte QR-Codes liefert, steht am Anfang, weil Client und Beispiele darauf aufbauen.
+Spec: section 6 (QR). The proof that the encoder produces real QR codes comes first, because the client and the examples build on it.
 
 **Files:**
-- Modify: `cpanfile` (ganz ersetzen)
-- Modify: `.github/workflows/ci.yml` (ein Schritt dazu)
+- Modify: `cpanfile` (replace entirely)
+- Modify: `.github/workflows/ci.yml` (add one step)
 - Create: `lib/Airlock/QR.pm`
 - Test: `t/10-qr.t`, `t/11-qr-readback.t`
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: nichts.
-- Produces: `Airlock::QR->new( text => $str, ecc => 'L'|'M'|'Q'|'H', quiet => $int, encoder => $coderef )`; `->matrix` (ArrayRef von ArrayRefs aus 0/1, ohne Rand); `->size`; `->svg`; `->data_uri`; `->terminal( ansi => 0|1 )` (liefert Zeichen, nicht Bytes); `->max_bytes` (1000).
+- Consumes: nothing.
+- Produces: `Airlock::QR->new( text => $str, ecc => 'L'|'M'|'Q'|'H', quiet => $int, encoder => $coderef )`; `->matrix` (ArrayRef of ArrayRefs of 0/1, without border); `->size`; `->svg`; `->data_uri`; `->terminal( ansi => 0|1 )` (returns characters, not bytes); `->max_bytes` (1000).
 
-- [ ] **Step 1: `cpanfile` ersetzen**
+- [ ] **Step 1: Replace `cpanfile`**
 
 `cpanfile`:
 
@@ -123,21 +123,21 @@ on test => sub {
 };
 ```
 
-- [ ] **Step 2: Abhängigkeiten installieren**
+- [ ] **Step 2: Install dependencies**
 
 Run: `cpanm --installdeps .`
-Expected: endet ohne Fehler; `perl -MGD::Barcode::QRcode -e 1` gibt nichts aus. `GD` selbst wird nicht installiert und nicht gebraucht.
+Expected: finishes without errors; `perl -MGD::Barcode::QRcode -e 1` prints nothing. `GD` itself is not installed and not needed.
 
-- [ ] **Step 3: `zbar-tools` in die CI**
+- [ ] **Step 3: `zbar-tools` into CI**
 
-In `.github/workflows/ci.yml` direkt vor dem Schritt `- uses: Getty/p5-dist-zilla-pluginbundle-author-getty/.github/actions/dzil-test@main` einfügen:
+In `.github/workflows/ci.yml`, insert directly before the step `- uses: Getty/p5-dist-zilla-pluginbundle-author-getty/.github/actions/dzil-test@main`:
 
 ```yaml
       - name: Install zbar-tools (QR read-back test)
         run: apt-get update && apt-get install -y --no-install-recommends zbar-tools
 ```
 
-- [ ] **Step 4: Die Tests schreiben**
+- [ ] **Step 4: Write the tests**
 
 `t/10-qr.t`:
 
@@ -309,12 +309,12 @@ for my $name ( sort keys %case ) {
 done_testing;
 ```
 
-- [ ] **Step 5: Tests laufen lassen, sie müssen scheitern**
+- [ ] **Step 5: Run the tests, they must fail**
 
 Run: `prove -lr t/10-qr.t t/11-qr-readback.t`
-Expected: FAIL mit `Can't locate Airlock/QR.pm in @INC`.
+Expected: FAIL with `Can't locate Airlock/QR.pm in @INC`.
 
-- [ ] **Step 6: `lib/Airlock/QR.pm` schreiben**
+- [ ] **Step 6: Write `lib/Airlock/QR.pm`**
 
 `lib/Airlock/QR.pm`:
 
@@ -529,26 +529,26 @@ leaves the colours out and assumes light text on a dark background.
 1;
 ```
 
-- [ ] **Step 7: Tests laufen lassen**
+- [ ] **Step 7: Run the tests**
 
 Run: `prove -lr t/10-qr.t t/11-qr-readback.t`
-Expected: `t/10-qr.t` PASS (7 Subtests). `t/11-qr-readback.t` PASS mit 8 Tests, wenn `zbarimg` installiert ist, sonst `skipped: zbarimg not found in PATH`.
+Expected: `t/10-qr.t` PASS (7 subtests). `t/11-qr-readback.t` PASS with 8 tests if `zbarimg` is installed, otherwise `skipped: zbarimg not found in PATH`.
 
-Wenn `zbarimg` vorhanden ist und ein Fall scheitert: nicht den Test abschwächen. Dann ist der Encoder für diesen Fall untauglich; als Notiz auf die Karte, der Koordinator entscheidet über einen anderen Encoder über das `encoder`-Attribut.
+If `zbarimg` is present and a case fails: do not weaken the test. Then the encoder is unfit for that case; put a note on the card, and the coordinator decides on a different encoder via the `encoder` attribute.
 
-- [ ] **Step 8: Modul in den Load-Test**
+- [ ] **Step 8: Add the module to the load test**
 
-In `t/00-load.t` die Zeile `  Airlock::QR` in die `qw( ... )`-Liste aufnehmen (alphabetisch). Run: `prove -lr t` — Expected: PASS.
+In `t/00-load.t`, add the line `  Airlock::QR` to the `qw( ... )` list (alphabetically). Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 9: Übergabe**
+- [ ] **Step 9: Handover**
 
-Baum commit-fertig lassen, nicht committen. Karte nach `review`. Vorschlag für den Release-Manager — Betreff: `Add Airlock::QR and declare runtime dependencies`; `Changes`: `- Airlock::QR: QR codes as SVG, terminal blocks and data URI, in pure Perl`.
+Leave the tree commit-ready, do not commit. Card to `review`. Suggestion for the release manager — subject: `Add Airlock::QR and declare runtime dependencies`; `Changes`: `- Airlock::QR: QR codes as SVG, terminal blocks and data URI, in pure Perl`.
 
 ---
 
 ### Task 2: `Airlock::Code`
 
-Spec: Abschnitt 6 (Code).
+Spec: section 6 (Code).
 
 **Files:**
 - Create: `lib/Airlock/Code.pm`
@@ -556,10 +556,10 @@ Spec: Abschnitt 6 (Code).
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: nichts.
-- Produces: `Airlock::Code->new( alphabet => $str, user_code_length => $int, secret_bytes => $int )`; `->user_code` (8 Zeichen ohne Trenner); `->secret` (64 Hex-Zeichen); `->hash($value)` (SHA-256 hex); `->normalize($input)` (Code oder leere Liste); `->display($code)` (`XXXX-XXXX`); `->equals($a, $b)` (1/0, konstante Zeit, auch als Klassenmethode aufrufbar).
+- Consumes: nothing.
+- Produces: `Airlock::Code->new( alphabet => $str, user_code_length => $int, secret_bytes => $int )`; `->user_code` (8 characters without separator); `->secret` (64 hex characters); `->hash($value)` (SHA-256 hex); `->normalize($input)` (code or empty list); `->display($code)` (`XXXX-XXXX`); `->equals($a, $b)` (1/0, constant time, also callable as a class method).
 
-- [ ] **Step 1: Den Test schreiben**
+- [ ] **Step 1: Write the test**
 
 `t/20-code.t`:
 
@@ -642,12 +642,12 @@ subtest 'normalize: what people and programs really send' => sub {
 done_testing;
 ```
 
-- [ ] **Step 2: Test laufen lassen, er muss scheitern**
+- [ ] **Step 2: Run the test, it must fail**
 
 Run: `prove -lr t/20-code.t`
-Expected: FAIL mit `Can't locate Airlock/Code.pm in @INC`.
+Expected: FAIL with `Can't locate Airlock/Code.pm in @INC`.
 
-- [ ] **Step 3: `lib/Airlock/Code.pm` schreiben**
+- [ ] **Step 3: Write `lib/Airlock/Code.pm`**
 
 `lib/Airlock/Code.pm`:
 
@@ -819,26 +819,26 @@ Compares two strings in constant time. Returns 1 or 0.
 1;
 ```
 
-- [ ] **Step 4: Test laufen lassen**
+- [ ] **Step 4: Run the test**
 
 Run: `prove -lr t/20-code.t`
-Expected: PASS (7 Subtests).
+Expected: PASS (7 subtests).
 
-- [ ] **Step 5: Modul in den Load-Test**
+- [ ] **Step 5: Add the module to the load test**
 
-`  Airlock::Code` in die Liste in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
+`  Airlock::Code` into the list in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 6: Übergabe**
+- [ ] **Step 6: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add Airlock::Code`; `Changes`: `- Airlock::Code: user codes, secrets, hashing and constant-time comparison`.
+Leave it commit-ready, card to `review`. Subject: `Add Airlock::Code`; `Changes`: `- Airlock::Code: user codes, secrets, hashing and constant-time comparison`.
 
 ---
 
-### Task 3: Store-Vertrag: `Airlock::Store::Memory` und `Airlock::Test::Store`
+### Task 3: Store contract: `Airlock::Store::Memory` and `Airlock::Test::Store`
 
-Spec: Abschnitt 6 (Store). Der Store ist kein Objekt mit Rolle, sondern ein Hash aus vier Coderefs. `Airlock::Store::Memory` ist der eingebaute Speicher und zugleich die Referenz-Implementierung; `Airlock::Test::Store` ist die Suite, mit der jede andere Anbindung geprüft wird.
+Spec: section 6 (Store). The store is not an object with a role but a hash of four coderefs. `Airlock::Store::Memory` is the built-in storage and at the same time the reference implementation; `Airlock::Test::Store` is the suite that checks every other binding.
 
-Die Zeile ist ein flacher Hash mit genau diesen Schlüsseln: `hash kind user_code client_id scope state created expires poll_interval last_poll subject amr acr auth_time approved origin_ip origin_ua factor_failures`. `hash` ist der Primärschlüssel (SHA-256 des Device-Codes oder Tokens). `kind` ist `request` oder `token`; Tokens liegen in derselben Tabelle. Das Feld heißt `poll_interval`, weil `INTERVAL` in manchen SQL-Dialekten reserviert ist.
+The row is a flat hash with exactly these keys: `hash kind user_code client_id scope state created expires poll_interval last_poll subject amr acr auth_time approved origin_ip origin_ua factor_failures`. `hash` is the primary key (SHA-256 of the device code or token). `kind` is `request` or `token`; tokens live in the same table. The field is called `poll_interval` because `INTERVAL` is reserved in some SQL dialects.
 
 **Files:**
 - Create: `lib/Airlock/Store/Memory.pm`, `lib/Airlock/Test/Store.pm`
@@ -846,10 +846,10 @@ Die Zeile ist ein flacher Hash mit genau diesen Schlüsseln: `hash kind user_cod
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: nichts.
-- Produces: der Store-Vertrag — `insert->(\%row)` (stirbt bei doppeltem `hash` oder doppeltem definiertem `user_code`), `find->($field, $value)` mit `$field` gleich `hash` oder `user_code` (Kopie der Zeile oder nichts), `update->($hash, $from_state, \%changes)` (wahr genau dann, wenn die Zeile im Zustand `$from_state` war und geändert wurde), `purge->($before)` (Anzahl entfernter Zeilen mit `expires < $before`). `Airlock::Store::Memory->new->as_subs` liefert diesen Hash. `Airlock::Test::Store->new( store => $subs )->run`; `->row(%override)` liefert eine vollständige Beispielzeile.
+- Consumes: nothing.
+- Produces: the store contract — `insert->(\%row)` (dies on a duplicate `hash` or a duplicate defined `user_code`), `find->($field, $value)` with `$field` equal to `hash` or `user_code` (a copy of the row or nothing), `update->($hash, $from_state, \%changes)` (true exactly when the row was in state `$from_state` and was changed), `purge->($before)` (number of removed rows with `expires < $before`). `Airlock::Store::Memory->new->as_subs` returns this hash. `Airlock::Test::Store->new( store => $subs )->run`; `->row(%override)` returns a complete example row.
 
-- [ ] **Step 1: Den Test schreiben**
+- [ ] **Step 1: Write the test**
 
 `t/30-store-memory.t`:
 
@@ -898,12 +898,12 @@ subtest 'refuses to be used across a fork' => sub {
 done_testing;
 ```
 
-- [ ] **Step 2: Test laufen lassen, er muss scheitern**
+- [ ] **Step 2: Run the test, it must fail**
 
 Run: `prove -lr t/30-store-memory.t`
-Expected: FAIL mit `Can't locate Airlock/Store/Memory.pm in @INC`.
+Expected: FAIL with `Can't locate Airlock/Store/Memory.pm in @INC`.
 
-- [ ] **Step 3: `lib/Airlock/Store/Memory.pm` schreiben**
+- [ ] **Step 3: Write `lib/Airlock/Store/Memory.pm`**
 
 `lib/Airlock/Store/Memory.pm`:
 
@@ -1056,7 +1056,7 @@ The four operations as the hash of coderefs L<Airlock> takes as C<store>.
 1;
 ```
 
-- [ ] **Step 4: `lib/Airlock/Test/Store.pm` schreiben**
+- [ ] **Step 4: Write `lib/Airlock/Test/Store.pm`**
 
 `lib/Airlock/Test/Store.pm`:
 
@@ -1239,24 +1239,24 @@ Runs the contract as subtests of the calling test file.
 1;
 ```
 
-- [ ] **Step 5: Test laufen lassen**
+- [ ] **Step 5: Run the test**
 
 Run: `prove -lr t/30-store-memory.t`
-Expected: PASS (8 Subtests: fünf aus der Vertrags-Suite, drei eigene).
+Expected: PASS (8 subtests: five from the contract suite, three of its own).
 
-- [ ] **Step 6: Module in den Load-Test**
+- [ ] **Step 6: Add the modules to the load test**
 
-`  Airlock::Store::Memory` und `  Airlock::Test::Store` in die Liste in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
+`  Airlock::Store::Memory` and `  Airlock::Test::Store` into the list in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 7: Übergabe**
+- [ ] **Step 7: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add in-process store and store contract suite`; `Changes`: `- Airlock::Store::Memory and Airlock::Test::Store: the four-sub store contract and its test suite`.
+Leave it commit-ready, card to `review`. Subject: `Add in-process store and store contract suite`; `Changes`: `- Airlock::Store::Memory and Airlock::Test::Store: the four-sub store contract and its test suite`.
 
 ---
 
-### Task 4: Faktoren und Policy
+### Task 4: Factors and policy
 
-Spec: Abschnitt 6 (Factor, Policy).
+Spec: section 6 (Factor, Policy).
 
 **Files:**
 - Create: `lib/Airlock/Factor.pm`, `lib/Airlock/Factor/Callback.pm`, `lib/Airlock/Factor/TOTP.pm`, `lib/Airlock/Factor/Upstream.pm`, `lib/Airlock/Policy.pm`
@@ -1264,16 +1264,16 @@ Spec: Abschnitt 6 (Factor, Policy).
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: `Airlock::Code->equals($a, $b)` aus Aufgabe 2 (nur `Airlock::Factor::TOTP`). Wird Aufgabe 4 vor Aufgabe 2 ausgeführt, zuerst Aufgabe 2 erledigen.
+- Consumes: `Airlock::Code->equals($a, $b)` from task 2 (only `Airlock::Factor::TOTP`). If task 4 is carried out before task 2, finish task 2 first.
 - Produces:
-  - Rolle `Airlock::Factor`: verlangt `verify($subject, $proof)`; Attribute `name`, `amr` (beide Pflicht); `needs_proof` (Standard 1); `available_for($subject)` (Standard 1).
+  - Role `Airlock::Factor`: requires `verify($subject, $proof)`; attributes `name`, `amr` (both required); `needs_proof` (default 1); `available_for($subject)` (default 1).
   - `Airlock::Factor::Callback->new( name =>, amr =>, verify => sub ($subject, $proof), available => sub ($subject) )`.
-  - `Airlock::Factor::TOTP->new( secret => sub ($subject), last_step => sub ($subject), accept_step => sub ($subject, $step), digits => 6, period => 30, window => 1, now => sub )`; `->code_at($secret_bytes, $step)`, `->generate_secret`, `->base32($bytes)`, `->otpauth_uri( secret =>, account =>, issuer => )`. `name` ist `totp`, `amr` ist `otp`.
-  - `Airlock::Factor::Upstream->new( accept_amr => [...], accept_acr => [...], max_age => $int, now => sub )`; `needs_proof` ist 0; `->reauth_params`. `name` ist `upstream`, `amr` ist `mfa`.
-  - `Airlock::Policy->new( always => [...], step_up => { scope => [...] }, max_auth_age => $int, decide => sub ($request, $subject, \@names) )`; `->required( { scopes => [...] }, $subject )` (ArrayRef von Faktor-Namen); `->fresh($subject, $now)` (1/0).
-  - Ein Subject ist ein Hash mit `id` und optional `amr` (ArrayRef), `acr`, `auth_time`.
+  - `Airlock::Factor::TOTP->new( secret => sub ($subject), last_step => sub ($subject), accept_step => sub ($subject, $step), digits => 6, period => 30, window => 1, now => sub )`; `->code_at($secret_bytes, $step)`, `->generate_secret`, `->base32($bytes)`, `->otpauth_uri( secret =>, account =>, issuer => )`. `name` is `totp`, `amr` is `otp`.
+  - `Airlock::Factor::Upstream->new( accept_amr => [...], accept_acr => [...], max_age => $int, now => sub )`; `needs_proof` is 0; `->reauth_params`. `name` is `upstream`, `amr` is `mfa`.
+  - `Airlock::Policy->new( always => [...], step_up => { scope => [...] }, max_auth_age => $int, decide => sub ($request, $subject, \@names) )`; `->required( { scopes => [...] }, $subject )` (ArrayRef of factor names); `->fresh($subject, $now)` (1/0).
+  - A subject is a hash with `id` and optionally `amr` (ArrayRef), `acr`, `auth_time`.
 
-- [ ] **Step 1: Die Tests schreiben**
+- [ ] **Step 1: Write the tests**
 
 `t/40-factor-totp.t`:
 
@@ -1521,14 +1521,14 @@ subtest 'max_auth_age' => sub {
 done_testing;
 ```
 
-- [ ] **Step 2: Tests laufen lassen, sie müssen scheitern**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `prove -lr t/40-factor-totp.t t/41-factor-callback-upstream.t t/42-policy.t`
-Expected: alle drei FAIL mit `Can't locate Airlock/Factor/TOTP.pm`, `.../Factor/Callback.pm`, `.../Policy.pm`.
+Expected: all three FAIL with `Can't locate Airlock/Factor/TOTP.pm`, `.../Factor/Callback.pm`, `.../Policy.pm`.
 
-- [ ] **Step 3: Die Rolle `lib/Airlock/Factor.pm` schreiben**
+- [ ] **Step 3: Write the role `lib/Airlock/Factor.pm`**
 
-Die Importe stehen vor `use Moo::Role`, damit sie nicht als Methoden in die konsumierenden Klassen wandern.
+The imports come before `use Moo::Role`, so that they do not wander into the consuming classes as methods.
 
 `lib/Airlock/Factor.pm`:
 
@@ -1620,7 +1620,7 @@ True when the subject can use this factor at all, for example has enrolled.
 1;
 ```
 
-- [ ] **Step 4: `lib/Airlock/Factor/Callback.pm` schreiben**
+- [ ] **Step 4: Write `lib/Airlock/Factor/Callback.pm`**
 
 `lib/Airlock/Factor/Callback.pm`:
 
@@ -1697,7 +1697,7 @@ sub available_for {
 1;
 ```
 
-- [ ] **Step 5: `lib/Airlock/Factor/TOTP.pm` schreiben**
+- [ ] **Step 5: Write `lib/Airlock/Factor/TOTP.pm`**
 
 `lib/Airlock/Factor/TOTP.pm`:
 
@@ -1933,7 +1933,7 @@ sub _escape {
 1;
 ```
 
-- [ ] **Step 6: `lib/Airlock/Factor/Upstream.pm` schreiben**
+- [ ] **Step 6: Write `lib/Airlock/Factor/Upstream.pm`**
 
 `lib/Airlock/Factor/Upstream.pm`:
 
@@ -2058,7 +2058,7 @@ to the identity provider for a fresh, strong authentication.
 1;
 ```
 
-- [ ] **Step 7: `lib/Airlock/Policy.pm` schreiben**
+- [ ] **Step 7: Write `lib/Airlock/Policy.pm`**
 
 `lib/Airlock/Policy.pm`:
 
@@ -2174,49 +2174,49 @@ True when the subject's authentication is recent enough to approve anything.
 1;
 ```
 
-- [ ] **Step 8: Tests laufen lassen**
+- [ ] **Step 8: Run the tests**
 
 Run: `prove -lr t/40-factor-totp.t t/41-factor-callback-upstream.t t/42-policy.t`
-Expected: PASS (7, 2 und 4 Subtests). Die sechs Testvektoren aus RFC 6238 Anhang B müssen stimmen; wenn nicht, ist `code_at` falsch, nicht der Test.
+Expected: PASS (7, 2 and 4 subtests). The six test vectors from RFC 6238 appendix B must match; if they do not, `code_at` is wrong, not the test.
 
-- [ ] **Step 9: Module in den Load-Test**
+- [ ] **Step 9: Add the modules to the load test**
 
-`  Airlock::Factor`, `  Airlock::Factor::Callback`, `  Airlock::Factor::TOTP`, `  Airlock::Factor::Upstream`, `  Airlock::Policy` in die Liste in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
+`  Airlock::Factor`, `  Airlock::Factor::Callback`, `  Airlock::Factor::TOTP`, `  Airlock::Factor::Upstream`, `  Airlock::Policy` into the list in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 10: Übergabe**
+- [ ] **Step 10: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add factors and policy`; `Changes`: `- Airlock::Factor role with Callback, TOTP (RFC 6238) and Upstream; Airlock::Policy for step-up rules`.
+Leave it commit-ready, card to `review`. Subject: `Add factors and policy`; `Changes`: `- Airlock::Factor role with Callback, TOTP (RFC 6238) and Upstream; Airlock::Policy for step-up rules`.
 
 ---
 
-### Task 5: Der Kern `Airlock`
+### Task 5: The core `Airlock`
 
-Spec: Abschnitte 2, 4, 6 (Issuer) und 8.
+Spec: sections 2, 4, 6 (Issuer) and 8.
 
-Zustände: `pending → approved | denied | expired`, `approved → redeemed` genau einmal. Der `user_code` bleibt an einer bestätigten Zeile hängen, bis sie eingelöst, abgelaufen oder abgelehnt ist; nur so kann ein zweiter Klick derselben Person als Erfolg erkannt werden.
+States: `pending → approved | denied | expired`, `approved → redeemed` exactly once. The `user_code` stays attached to an approved row until it is redeemed, expired or denied; only that way can a second click by the same person be recognized as success.
 
 **Files:**
 - Create: `lib/Airlock/Result.pm`
-- Modify: `lib/Airlock.pm` (der Stub wird ganz ersetzt)
+- Modify: `lib/Airlock.pm` (the stub is replaced entirely)
 - Create: `t/lib/AirlockTest.pm`
 - Test: `t/50-core.t`, `t/51-core-factors.t`, `t/52-core-token.t`
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: `Airlock::Code` (Aufgabe 2); `Airlock::Store::Memory->new->as_subs` und der Store-Vertrag (Aufgabe 3); `Airlock::Policy->required`/`->fresh` und die Rolle `Airlock::Factor` mit `name`, `amr`, `needs_proof`, `available_for`, `verify` (Aufgabe 4).
+- Consumes: `Airlock::Code` (task 2); `Airlock::Store::Memory->new->as_subs` and the store contract (task 3); `Airlock::Policy->required`/`->fresh` and the role `Airlock::Factor` with `name`, `amr`, `needs_proof`, `available_for`, `verify` (task 4).
 - Produces:
-  - `Airlock::Result`: `ok`, `status`, `data` (HashRef), `missing` (ArrayRef), `->oauth` → `[ 200, \%data ]` oder `[ 400, { error => $status } ]`.
+  - `Airlock::Result`: `ok`, `status`, `data` (HashRef), `missing` (ArrayRef), `->oauth` → `[ 200, \%data ]` or `[ 400, { error => $status } ]`.
   - `Airlock->new( clients => \%h | $coderef, verification_uri => $str, store => \%subs, policy => $obj | \%h, factors => [...], issuer => sub ($grant), on_event => sub (\%event), now => sub, expires_in => 600, interval => 5, token_ttl => 3600, max_factor_failures => 5, code => $obj )`.
-  - `->open( client_id =>, scope =>, origin => { ip =>, ua => } )` → Result; `data` hat `device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in`, `interval`.
-  - `->inspect( $input, subject => $subject )` → View-Hash (`user_code`, `client_id`, `client_name`, `scopes`, `origin`, `created`, `age`, `expires_in`) oder leere Liste.
-  - `->requirements( $view, $subject )` → ArrayRef von Faktor-Namen.
-  - `->approve( $input, subject => $subject, proofs => { name => $proof } )` → Result mit Status `approved`, `unknown_code`, `reauth_required`, `factor_unavailable`, `factor_required`, `factor_failed`, `too_many_failures`.
-  - `->deny( $input, subject => $subject )` → Result `denied` oder `unknown_code`.
-  - `->redeem( device_code =>, client_id => )` → Result `granted` (Token-Antwort in `data`), `authorization_pending`, `slow_down`, `access_denied`, `expired_token`, `invalid_grant`, `invalid_request`.
-  - `->verify_token($token)` → Grant-Hash oder leere Liste; `->revoke_token($token)` → 1/0; `->purge` → Anzahl; `->client($id)`; `->factor($name)`; `Airlock->row_fields`.
-  - Test-Fixture `AirlockTest->new(%airlock_args)`: `->airlock`, `->memory`, `->events`, `->event_names`, `->clock`, `->advance($seconds)`, `->start(%open_args)` (liefert `data` von `open` für Client `cli`), `->row($device_code)`. Clients der Fixture: `cli` (Scopes `read write admin`) und `open` (ohne Scope-Liste).
+  - `->open( client_id =>, scope =>, origin => { ip =>, ua => } )` → Result; `data` has `device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in`, `interval`.
+  - `->inspect( $input, subject => $subject )` → view hash (`user_code`, `client_id`, `client_name`, `scopes`, `origin`, `created`, `age`, `expires_in`) or empty list.
+  - `->requirements( $view, $subject )` → ArrayRef of factor names.
+  - `->approve( $input, subject => $subject, proofs => { name => $proof } )` → Result with status `approved`, `unknown_code`, `reauth_required`, `factor_unavailable`, `factor_required`, `factor_failed`, `too_many_failures`.
+  - `->deny( $input, subject => $subject )` → Result `denied` or `unknown_code`.
+  - `->redeem( device_code =>, client_id => )` → Result `granted` (token response in `data`), `authorization_pending`, `slow_down`, `access_denied`, `expired_token`, `invalid_grant`, `invalid_request`.
+  - `->verify_token($token)` → grant hash or empty list; `->revoke_token($token)` → 1/0; `->purge` → count; `->client($id)`; `->factor($name)`; `Airlock->row_fields`.
+  - Test fixture `AirlockTest->new(%airlock_args)`: `->airlock`, `->memory`, `->events`, `->event_names`, `->clock`, `->advance($seconds)`, `->start(%open_args)` (returns the `data` of `open` for client `cli`), `->row($device_code)`. Clients of the fixture: `cli` (scopes `read write admin`) and `open` (without a scope list).
 
-- [ ] **Step 1: Die Test-Fixture schreiben**
+- [ ] **Step 1: Write the test fixture**
 
 `t/lib/AirlockTest.pm`:
 
@@ -2273,7 +2273,7 @@ sub row {
 1;
 ```
 
-- [ ] **Step 2: Die Tests schreiben**
+- [ ] **Step 2: Write the tests**
 
 `t/50-core.t`:
 
@@ -2820,12 +2820,12 @@ subtest 'purge' => sub {
 done_testing;
 ```
 
-- [ ] **Step 3: Tests laufen lassen, sie müssen scheitern**
+- [ ] **Step 3: Run the tests, they must fail**
 
 Run: `prove -lr t/50-core.t t/51-core-factors.t t/52-core-token.t`
-Expected: FAIL. Der Stub `Airlock` hat kein `new` mit diesen Attributen; die erste Meldung ist `Can't locate object method "new" via package "Airlock"`.
+Expected: FAIL. The stub `Airlock` has no `new` with these attributes; the first message is `Can't locate object method "new" via package "Airlock"`.
 
-- [ ] **Step 4: `lib/Airlock/Result.pm` schreiben**
+- [ ] **Step 4: Write `lib/Airlock/Result.pm`**
 
 `lib/Airlock/Result.pm`:
 
@@ -2927,9 +2927,9 @@ C<error>.
 1;
 ```
 
-- [ ] **Step 5: `lib/Airlock.pm` ersetzen**
+- [ ] **Step 5: Replace `lib/Airlock.pm`**
 
-Die Methode heißt `open`, wie in der Spec. Innerhalb des Pakets wird das eingebaute `open` nirgends aufgerufen; wer es je braucht, schreibt `CORE::open`.
+The method is called `open`, as in the spec. Inside the package the built-in `open` is never called; whoever ever needs it writes `CORE::open`.
 
 `lib/Airlock.pm`:
 
@@ -3619,36 +3619,36 @@ sub _issue_opaque {
 1;
 ```
 
-- [ ] **Step 6: Tests laufen lassen**
+- [ ] **Step 6: Run the tests**
 
 Run: `prove -lr t/50-core.t t/51-core-factors.t t/52-core-token.t`
-Expected: PASS (19, 8 und 5 Subtests), ohne Warnungen auf STDERR.
+Expected: PASS (19, 8 and 5 subtests), without warnings on STDERR.
 
-- [ ] **Step 7: Modul in den Load-Test**
+- [ ] **Step 7: Add the module to the load test**
 
-`  Airlock::Result` in die Liste in `t/00-load.t` (`Airlock` steht schon drin). Run: `prove -lr t` — Expected: PASS.
+`  Airlock::Result` into the list in `t/00-load.t` (`Airlock` is already in it). Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 8: Übergabe**
+- [ ] **Step 8: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Implement the Airlock core`; `Changes`: `- Airlock: open, inspect, requirements, approve, deny, redeem; opaque tokens with verify_token and revoke_token; events`.
+Leave it commit-ready, card to `review`. Subject: `Implement the Airlock core`; `Changes`: `- Airlock: open, inspect, requirements, approve, deny, redeem; opaque tokens with verify_token and revoke_token; events`.
 
 ---
 
-### Task 6: Maschinen-Endpunkte: `respond`, `to_app`, `Airlock::HTTPMessage`
+### Task 6: Machine endpoints: `respond`, `to_app`, `Airlock::HTTPMessage`
 
-Spec: Abschnitte 3 und 5. Abweichung von Revision 2 der Spec, in Revision 3 nachgezogen: `handle` ist keine Methode von `Airlock`, sondern lebt in `Airlock::HTTPMessage`, weil die Hausregel verzögertes `require` verbietet und `Airlock` selbst nicht von `HTTP::Message` abhängen soll.
+Spec: sections 3 and 5. Deviation from revision 2 of the spec, caught up in revision 3: `handle` is not a method of `Airlock` but lives in `Airlock::HTTPMessage`, because the house rule forbids deferred `require` and `Airlock` itself should not depend on `HTTP::Message`.
 
 **Files:**
 - Create: `lib/Airlock/Role/Endpoints.pm`, `lib/Airlock/HTTPMessage.pm`
-- Modify: `lib/Airlock.pm` (Rolle einbinden, Synopsis ergänzen)
+- Modify: `lib/Airlock.pm` (include the role, extend the synopsis)
 - Test: `t/60-endpoints.t`, `t/61-httpmessage.t`
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: `Airlock->open`, `Airlock->redeem`, `Airlock::Result->oauth` (Aufgabe 5); Fixture `AirlockTest` (Aufgabe 5).
-- Produces: auf `Airlock`: `->respond( $method, $path, \%params, \%origin )` → `[ $status, \%headers, \%json ]`; `->parse_form($body)` → HashRef oder leere Liste (im Listenkontext immer mit `scalar` aufrufen); `->encode_body(\%json)` → JSON-Bytes; `->to_app` → PSGI-Coderef; `->max_body` (16384); `->device_grant_type`. `Airlock::HTTPMessage->new( airlock => $airlock )->handle( $http_request, ip => $addr )` → `HTTP::Response`.
+- Consumes: `Airlock->open`, `Airlock->redeem`, `Airlock::Result->oauth` (task 5); fixture `AirlockTest` (task 5).
+- Produces: on `Airlock`: `->respond( $method, $path, \%params, \%origin )` → `[ $status, \%headers, \%json ]`; `->parse_form($body)` → HashRef or empty list (always call it with `scalar` in list context); `->encode_body(\%json)` → JSON bytes; `->to_app` → PSGI coderef; `->max_body` (16384); `->device_grant_type`. `Airlock::HTTPMessage->new( airlock => $airlock )->handle( $http_request, ip => $addr )` → `HTTP::Response`.
 
-- [ ] **Step 1: Die Tests schreiben**
+- [ ] **Step 1: Write the tests**
 
 `t/60-endpoints.t`:
 
@@ -3820,12 +3820,12 @@ ok( !eval { Airlock::HTTPMessage->new; 1 }, 'airlock is required' );
 done_testing;
 ```
 
-- [ ] **Step 2: Tests laufen lassen, sie müssen scheitern**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `prove -lr t/60-endpoints.t t/61-httpmessage.t`
-Expected: FAIL mit `Can't locate object method "respond" via package "Airlock"` und `Can't locate Airlock/HTTPMessage.pm in @INC`.
+Expected: FAIL with `Can't locate object method "respond" via package "Airlock"` and `Can't locate Airlock/HTTPMessage.pm in @INC`.
 
-- [ ] **Step 3: `lib/Airlock/Role/Endpoints.pm` schreiben**
+- [ ] **Step 3: Write `lib/Airlock/Role/Endpoints.pm`**
 
 `lib/Airlock/Role/Endpoints.pm`:
 
@@ -3993,15 +3993,15 @@ sub _unescape {
 1;
 ```
 
-- [ ] **Step 4: Die Rolle in `lib/Airlock.pm` einbinden**
+- [ ] **Step 4: Include the role in `lib/Airlock.pm`**
 
-Direkt unter `use Moo;` einfügen:
+Insert directly below `use Moo;`:
 
 ```perl
 with 'Airlock::Role::Endpoints';
 ```
 
-Und in der Synopsis nach dem schließenden `);` des Konstruktors einfügen:
+And in the synopsis, insert after the closing `);` of the constructor:
 
 ```perl
 
@@ -4009,7 +4009,7 @@ Und in der Synopsis nach dem schließenden `);` des Konstruktors einfügen:
     my $app = $airlock->to_app;
 ```
 
-- [ ] **Step 5: `lib/Airlock/HTTPMessage.pm` schreiben**
+- [ ] **Step 5: Write `lib/Airlock/HTTPMessage.pm`**
 
 `lib/Airlock/HTTPMessage.pm`:
 
@@ -4083,24 +4083,24 @@ carry.
 1;
 ```
 
-- [ ] **Step 6: Tests laufen lassen**
+- [ ] **Step 6: Run the tests**
 
 Run: `prove -lr t/60-endpoints.t t/61-httpmessage.t`
-Expected: PASS (4 Subtests und 3 Tests), ohne Warnungen auf STDERR. Eine Warnung `Odd number of elements` heißt, dass `parse_form` irgendwo ohne `scalar` in einer Argumentliste steht.
+Expected: PASS (4 subtests and 3 tests), without warnings on STDERR. A warning `Odd number of elements` means that `parse_form` sits somewhere in an argument list without `scalar`.
 
-- [ ] **Step 7: Module in den Load-Test**
+- [ ] **Step 7: Add the modules to the load test**
 
-`  Airlock::HTTPMessage` und `  Airlock::Role::Endpoints` in die Liste in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
+`  Airlock::HTTPMessage` and `  Airlock::Role::Endpoints` into the list in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 8: Übergabe**
+- [ ] **Step 8: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add machine endpoints: respond, to_app, Airlock::HTTPMessage`; `Changes`: `- Device and token endpoint as PSGI (to_app), for HTTP::Request (Airlock::HTTPMessage) and framework-neutral (respond)`.
+Leave it commit-ready, card to `review`. Subject: `Add machine endpoints: respond, to_app, Airlock::HTTPMessage`; `Changes`: `- Device and token endpoint as PSGI (to_app), for HTTP::Request (Airlock::HTTPMessage) and framework-neutral (respond)`.
 
 ---
 
 ### Task 7: `Airlock::Client`
 
-Spec: Abschnitt 6 (Client).
+Spec: section 6 (Client).
 
 **Files:**
 - Create: `lib/Airlock/Client.pm`
@@ -4108,12 +4108,12 @@ Spec: Abschnitt 6 (Client).
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: `Airlock::QR->new( text =>, quiet => )->terminal(%opt)` (Aufgabe 1); `Airlock->to_app` (Aufgabe 6) und `AirlockTest` (Aufgabe 5) nur im Test.
-- Produces: `Airlock::Client->new( client_id =>, scope =>, issuer => | device_endpoint => + token_endpoint =>, ua => $http_tiny, on_prompt => sub ($start), sleep => sub ($seconds), now => sub )`; `->start` → HashRef der Device-Antwort; `->poll($start)` → HashRef der Token-Antwort; `->login`; `->prompt_text( $start, %qr_terminal_opts )`.
+- Consumes: `Airlock::QR->new( text =>, quiet => )->terminal(%opt)` (task 1); `Airlock->to_app` (task 6) and `AirlockTest` (task 5) only in the test.
+- Produces: `Airlock::Client->new( client_id =>, scope =>, issuer => | device_endpoint => + token_endpoint =>, ua => $http_tiny, on_prompt => sub ($start), sleep => sub ($seconds), now => sub )`; `->start` → HashRef of the device response; `->poll($start)` → HashRef of the token response; `->login`; `->prompt_text( $start, %qr_terminal_opts )`.
 
-- [ ] **Step 1: Den Test schreiben**
+- [ ] **Step 1: Write the test**
 
-Der Test ersetzt `HTTP::Tiny` durch eine Unterklasse, die eine PSGI-App im selben Prozess aufruft; so teilen Test und Server Uhr und Speicher. Ein Subtest geht zusätzlich über einen echten Socket. Dort baut der Server-Prozess sein eigenes `Airlock`, weil der eingebaute Speicher einen Fork verweigert.
+The test replaces `HTTP::Tiny` with a subclass that calls a PSGI app in the same process; that way test and server share clock and storage. One subtest additionally goes over a real socket. There the server process builds its own `Airlock`, because the built-in storage refuses a fork.
 
 `t/70-client.t`:
 
@@ -4334,12 +4334,12 @@ subtest 'poll: nonsense from the server does not become a busy loop' => sub {
 done_testing;
 ```
 
-- [ ] **Step 2: Test laufen lassen, er muss scheitern**
+- [ ] **Step 2: Run the test, it must fail**
 
 Run: `prove -lr t/70-client.t`
-Expected: FAIL mit `Can't locate Airlock/Client.pm in @INC`.
+Expected: FAIL with `Can't locate Airlock/Client.pm in @INC`.
 
-- [ ] **Step 3: `lib/Airlock/Client.pm` schreiben**
+- [ ] **Step 3: Write `lib/Airlock/Client.pm`**
 
 `lib/Airlock/Client.pm`:
 
@@ -4645,39 +4645,39 @@ sub _reason {
 1;
 ```
 
-- [ ] **Step 4: Test laufen lassen**
+- [ ] **Step 4: Run the test**
 
 Run: `prove -lr t/70-client.t`
-Expected: PASS (11 Subtests).
+Expected: PASS (11 subtests).
 
-- [ ] **Step 5: Modul in den Load-Test**
+- [ ] **Step 5: Add the module to the load test**
 
-`  Airlock::Client` in die Liste in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
+`  Airlock::Client` into the list in `t/00-load.t`. Run: `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 6: Übergabe**
+- [ ] **Step 6: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add Airlock::Client`; `Changes`: `- Airlock::Client: RFC 8628 device flow client with discovery and terminal QR code`.
+Leave it commit-ready, card to `review`. Subject: `Add Airlock::Client`; `Changes`: `- Airlock::Client: RFC 8628 device flow client with discovery and terminal QR code`.
 
 ---
 
-### Task 8: Beispiele und README
+### Task 8: Examples and README
 
-Spec: Abschnitt 5 (Menschen-Seite, Beispiele). Die Beispiele sind der Beleg, dass der Einbau ohne Plugin wenige Zeilen ist, und die Store-Beispiele laufen gegen dieselbe Vertrags-Suite wie der eingebaute Speicher.
+Spec: section 5 (human side, examples). The examples are the proof that embedding without a plugin takes few lines, and the store examples run against the same contract suite as the built-in storage.
 
 **Files:**
 - Create: `examples/schema.sql`
 - Create: `examples/lib/AirlockExample/StoreDBI.pm`, `examples/lib/AirlockExample/Schema.pm`, `examples/lib/AirlockExample/Schema/Result/Airlock.pm`, `examples/lib/AirlockExample/StoreDBIO.pm`, `examples/lib/AirlockExample/Demo.pm`
 - Create: `examples/app.psgi`, `examples/mojo.pl`, `examples/login.pl`
 - Test: `t/80-example-store-dbi.t`, `t/81-example-store-dbio.t`, `t/82-example-psgi.t`, `t/83-example-mojo.t`
-- Modify: `README.md` (ganz ersetzen)
+- Modify: `README.md` (replace entirely)
 
 **Interfaces:**
-- Consumes: alles aus den Aufgaben 1 bis 7; insbesondere `Airlock->row_fields`, `Airlock::Test::Store`, `->to_app`, `->respond`, `->parse_form`, `->inspect`, `->requirements`, `->approve`, `->deny`, `Airlock::QR->svg`, `Airlock::Client->login`.
-- Produces: nichts, worauf andere Aufgaben bauen.
+- Consumes: everything from tasks 1 to 7; in particular `Airlock->row_fields`, `Airlock::Test::Store`, `->to_app`, `->respond`, `->parse_form`, `->inspect`, `->requirements`, `->approve`, `->deny`, `Airlock::QR->svg`, `Airlock::Client->login`.
+- Produces: nothing other tasks build on.
 
-Die vier Tests überspringen sich selbst, wenn ihre optionale Abhängigkeit fehlt (`DBD::SQLite`, `DBIO`, `Plack`, `Mojolicious`). Zum Ausführen dieser Aufgabe müssen alle vier installiert sein, sonst ist nichts bewiesen: `cpanm DBD::SQLite Plack Mojolicious` und DBIO aus `~/dev/dbio-dev/dbio`.
+The four tests skip themselves when their optional dependency is missing (`DBD::SQLite`, `DBIO`, `Plack`, `Mojolicious`). To carry out this task all four must be installed, otherwise nothing is proven: `cpanm DBD::SQLite Plack Mojolicious` and DBIO from `~/dev/dbio-dev/dbio`.
 
-- [ ] **Step 1: Die Tests schreiben**
+- [ ] **Step 1: Write the tests**
 
 `t/80-example-store-dbi.t`:
 
@@ -4910,12 +4910,12 @@ $t->post_ok( '/airlock/nope' => form => {} )->status_is(404);
 done_testing;
 ```
 
-- [ ] **Step 2: Tests laufen lassen, sie müssen scheitern**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `prove -lr t/80-example-store-dbi.t t/81-example-store-dbio.t t/82-example-psgi.t t/83-example-mojo.t`
-Expected: FAIL mit `Can't locate AirlockExample/StoreDBI.pm`, `Can't locate AirlockExample/Schema.pm`, einem Ladefehler für `examples/app.psgi` und einem für `examples/mojo.pl`. Steht dort stattdessen `skipped`, fehlt eine der optionalen Abhängigkeiten: erst installieren.
+Expected: FAIL with `Can't locate AirlockExample/StoreDBI.pm`, `Can't locate AirlockExample/Schema.pm`, a load error for `examples/app.psgi` and one for `examples/mojo.pl`. If it says `skipped` instead, one of the optional dependencies is missing: install it first.
 
-- [ ] **Step 3: `examples/schema.sql` schreiben**
+- [ ] **Step 3: Write `examples/schema.sql`**
 
 `examples/schema.sql`:
 
@@ -4947,7 +4947,7 @@ CREATE TABLE airlock (
 CREATE INDEX airlock_expires ON airlock (expires);
 ```
 
-- [ ] **Step 4: Den DBI-Store schreiben**
+- [ ] **Step 4: Write the DBI store**
 
 `examples/lib/AirlockExample/StoreDBI.pm`:
 
@@ -5030,7 +5030,7 @@ sub as_subs {
 1;
 ```
 
-- [ ] **Step 5: Den DBIO-Store schreiben**
+- [ ] **Step 5: Write the DBIO store**
 
 `examples/lib/AirlockExample/Schema.pm`:
 
@@ -5142,14 +5142,14 @@ sub as_subs {
 1;
 ```
 
-- [ ] **Step 6: Store-Tests laufen lassen**
+- [ ] **Step 6: Run the store tests**
 
 Run: `prove -lr t/80-example-store-dbi.t t/81-example-store-dbio.t`
-Expected: PASS (je 2 Subtests).
+Expected: PASS (2 subtests each).
 
-- [ ] **Step 7: Die gemeinsame Demo-Logik schreiben**
+- [ ] **Step 7: Write the shared demo logic**
 
-Login und CSRF-Schutz gehören der Host-App. Das Beispiel markiert beide Stellen mit einem Kommentar in Großbuchstaben, statt sie vorzutäuschen.
+Login and CSRF protection belong to the host app. The example marks both places with a comment in capital letters instead of faking them.
 
 `examples/lib/AirlockExample/Demo.pm`:
 
@@ -5251,7 +5251,7 @@ sub _confirm {
 1;
 ```
 
-- [ ] **Step 8: Die Plack-App, die Mojolicious-App und das CLI schreiben**
+- [ ] **Step 8: Write the Plack app, the Mojolicious app and the CLI**
 
 `examples/app.psgi`:
 
@@ -5376,18 +5376,18 @@ print 'access_token: '.$token->{access_token}."\n";
 print 'scope:        '.( $token->{scope} // '' )."\n";
 ```
 
-- [ ] **Step 9: App-Tests laufen lassen**
+- [ ] **Step 9: Run the app tests**
 
 Run: `prove -lr t/82-example-psgi.t t/83-example-mojo.t`
-Expected: PASS (5 Subtests und 22 Tests).
+Expected: PASS (5 subtests and 22 tests).
 
-- [ ] **Step 10: Von Hand ausprobieren**
+- [ ] **Step 10: Try it by hand**
 
 Terminal 1: `plackup -Ilib -Iexamples/lib examples/app.psgi`
 Terminal 2: `perl -Ilib examples/login.pl read admin`
-Expected: Terminal 2 zeigt URL, Code und QR-Code. Im Browser `http://localhost:5000/approve` öffnen, Code eingeben, PIN `4711`, bestätigen. Terminal 2 gibt innerhalb von fünf Sekunden `access_token:` und `scope:        read admin` aus.
+Expected: terminal 2 shows URL, code and QR code. Open `http://localhost:5000/approve` in the browser, enter the code, PIN `4711`, confirm. Within five seconds terminal 2 prints `access_token:` and `scope:        read admin`.
 
-- [ ] **Step 11: `README.md` ersetzen**
+- [ ] **Step 11: Replace `README.md`**
 
 `README.md`:
 
@@ -5525,26 +5525,26 @@ This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself.
 ````
 
-- [ ] **Step 12: Alles laufen lassen**
+- [ ] **Step 12: Run everything**
 
 Run: `prove -lr t && dzil test`
-Expected: beide PASS. `dzil test` prüft zusätzlich die POD-Syntax nach dem Weaving.
+Expected: both PASS. `dzil test` additionally checks the POD syntax after weaving.
 
-- [ ] **Step 13: Übergabe**
+- [ ] **Step 13: Handover**
 
-Commit-fertig lassen, Karte nach `review`. Betreff: `Add examples and README`; `Changes`: `- Examples: Plack and Mojolicious host apps, store on DBI and DBIO, device CLI`.
+Leave it commit-ready, card to `review`. Subject: `Add examples and README`; `Changes`: `- Examples: Plack and Mojolicious host apps, store on DBI and DBIO, device CLI`.
 
 ---
 
-### Task 9: Keycloak: Abbildung und Live-Test
+### Task 9: Keycloak: mapping and live test
 
-Spec: Abschnitt 7. **Diese Aufgabe braucht ein laufendes Keycloak und ist die einzige, deren Inhalt ungeprüft ist.** Wo dieses Keycloak läuft, entscheidet der Maintainer; nicht auf einer Maschine mit knappem Speicher starten. Schritte 1 bis 5 gehen ohne Keycloak, ab Schritt 6 nicht mehr.
+Spec: section 7. **This task needs a running Keycloak and is the only one whose content is unverified.** Where this Keycloak runs is decided by the maintainer; do not start it on a machine with scarce memory. Steps 1 to 5 work without Keycloak, from step 6 on they do not.
 
-Was hier als Annahme steht und vom Live-Test bestätigt oder widerlegt wird:
+What is stated here as an assumption and is confirmed or refuted by the live test:
 
-- der Aufbau von `t/keycloak/realm.json`, besonders das OTP-Credential des Nutzers `otp` und das Client-Attribut für den Device-Grant;
-- dass Keycloaks Direct Grant den Parameter `totp` annimmt;
-- dass ein Login mit TOTP im Token an `amr` oder `acr` erkennbar ist und die Standardwerte `mfa_amr => [qw( mfa otp hwk )]`, `mfa_acr => []` dafür passen.
+- the structure of `t/keycloak/realm.json`, especially the OTP credential of the user `otp` and the client attribute for the device grant;
+- that Keycloak's direct grant accepts the parameter `totp`;
+- that a login with TOTP is recognizable in the token by `amr` or `acr`, and that the defaults `mfa_amr => [qw( mfa otp hwk )]`, `mfa_acr => []` fit it.
 
 **Files:**
 - Create: `lib/Airlock/Upstream/Keycloak.pm`
@@ -5553,10 +5553,10 @@ Was hier als Annahme steht und vom Live-Test bestätigt oder widerlegt wird:
 - Modify: `t/00-load.t`
 
 **Interfaces:**
-- Consumes: `Airlock::Factor::Upstream->new( accept_amr =>, accept_acr =>, max_age =>, now => )` und `Airlock::Factor::TOTP->code_at` (Aufgabe 4); `Airlock::Client` mit `issuer`, `->device_endpoint`, `->token_endpoint`, `->start`, `->poll` (Aufgabe 7).
+- Consumes: `Airlock::Factor::Upstream->new( accept_amr =>, accept_acr =>, max_age =>, now => )` and `Airlock::Factor::TOTP->code_at` (task 4); `Airlock::Client` with `issuer`, `->device_endpoint`, `->token_endpoint`, `->start`, `->poll` (task 7).
 - Produces: `Airlock::Upstream::Keycloak->new( mfa_amr => [...], mfa_acr => [...] )`; `->subject(\%claims)` → `{ id, amr, acr, auth_time }`; `->factor(%upstream_opts)` → `Airlock::Factor::Upstream`.
 
-- [ ] **Step 1: Den Unit-Test schreiben**
+- [ ] **Step 1: Write the unit test**
 
 `t/45-upstream-keycloak.t`:
 
@@ -5602,12 +5602,12 @@ subtest 'factor' => sub {
 done_testing;
 ```
 
-- [ ] **Step 2: Test laufen lassen, er muss scheitern**
+- [ ] **Step 2: Run the test, it must fail**
 
 Run: `prove -lr t/45-upstream-keycloak.t`
-Expected: FAIL mit `Can't locate Airlock/Upstream/Keycloak.pm in @INC`.
+Expected: FAIL with `Can't locate Airlock/Upstream/Keycloak.pm in @INC`.
 
-- [ ] **Step 3: `lib/Airlock/Upstream/Keycloak.pm` schreiben**
+- [ ] **Step 3: Write `lib/Airlock/Upstream/Keycloak.pm`**
 
 `lib/Airlock/Upstream/Keycloak.pm`:
 
@@ -5711,11 +5711,11 @@ factor. Takes its options.
 1;
 ```
 
-- [ ] **Step 4: Unit-Test laufen lassen, Modul in den Load-Test**
+- [ ] **Step 4: Run the unit test, add the module to the load test**
 
-Run: `prove -lr t/45-upstream-keycloak.t` — Expected: PASS (2 Subtests). Dann `  Airlock::Upstream::Keycloak` in die Liste in `t/00-load.t` und `prove -lr t` — Expected: PASS.
+Run: `prove -lr t/45-upstream-keycloak.t` — Expected: PASS (2 subtests). Then `  Airlock::Upstream::Keycloak` into the list in `t/00-load.t` and `prove -lr t` — Expected: PASS.
 
-- [ ] **Step 5: Realm, Anleitung und Live-Test schreiben**
+- [ ] **Step 5: Write the realm, the instructions and the live test**
 
 `t/keycloak/realm.json`:
 
@@ -5902,31 +5902,31 @@ done_testing;
 
 Run: `prove -lr t/90-live-keycloak.t` — Expected: `skipped: set TEST_AIRLOCK_KEYCLOAK_URL to run the Keycloak live test`.
 
-- [ ] **Step 6: Keycloak starten und den Realm importieren**
+- [ ] **Step 6: Start Keycloak and import the realm**
 
-Nach `t/keycloak/README.md`, mit einer festen Versions-Markierung statt `latest`; die Version in die Findings-Tabelle eintragen.
-Expected: Das Log meldet den Import des Realms `airlock-test` ohne Fehler, und `curl -s $URL/realms/airlock-test/.well-known/openid-configuration` liefert JSON mit `device_authorization_endpoint`.
+Following `t/keycloak/README.md`, with a fixed version tag instead of `latest`; enter the version in the findings table.
+Expected: the log reports the import of the realm `airlock-test` without errors, and `curl -s $URL/realms/airlock-test/.well-known/openid-configuration` returns JSON with `device_authorization_endpoint`.
 
-Wenn der Import scheitert: `realm.json` gegen die Dokumentation genau dieser Keycloak-Version korrigieren (Abschnitt „Importing a realm“ und das Export-Format eines von Hand angelegten Realms sind die Referenz). Am sichersten: Client und Nutzer in der Admin-Konsole anlegen, Realm exportieren, die Datei darauf zurechtschneiden.
+If the import fails: correct `realm.json` against the documentation of exactly this Keycloak version (the section "Importing a realm" and the export format of a realm created by hand are the reference). Safest: create the client and user in the admin console, export the realm, trim the file down to it.
 
-- [ ] **Step 7: Live-Test laufen lassen und lesen**
+- [ ] **Step 7: Run and read the live test**
 
 Run: `TEST_AIRLOCK_KEYCLOAK_URL=http://localhost:8080 prove -lv t/90-live-keycloak.t`
-Expected: Der erste Subtest ist PASS; das ist der Nachweis, dass `Airlock::Client` gegen Keycloaks Device-Endpunkt läuft. Im zweiten Subtest drucken die `diag`-Zeilen `acr`, `amr` und `auth_time` für beide Nutzer, je aus ID- und Access-Token.
+Expected: the first subtest is PASS; that is the proof that `Airlock::Client` works against Keycloak's device endpoint. In the second subtest the `diag` lines print `acr`, `amr` and `auth_time` for both users, each from the ID and access token.
 
-- [ ] **Step 8: Die Abbildung an den Befund anpassen**
+- [ ] **Step 8: Adapt the mapping to the findings**
 
-Die `diag`-Zeilen in die Findings-Tabelle in `t/keycloak/README.md` übertragen. Dann drei Fälle:
+Transfer the `diag` lines into the findings table in `t/keycloak/README.md`. Then three cases:
 
-1. Der OTP-Login trägt ein `amr` aus `mfa`/`otp`/`hwk`, der Passwort-Login nicht: die Standardwerte stimmen, nichts ändern.
-2. Der Unterschied liegt in `acr` (oder in anderen `amr`-Werten): die Standardwerte von `mfa_acr` beziehungsweise `mfa_amr` in `lib/Airlock/Upstream/Keycloak.pm` auf die beobachteten Werte setzen, in der POD der beiden Attribute Keycloak-Version und beobachtete Werte nennen, und den Subtest `factor` in `t/45-upstream-keycloak.t` um einen Fall mit genau diesen Claims ergänzen.
-3. Die Tokens beider Logins sind an `acr` und `amr` nicht zu unterscheiden: Keycloak liefert die Information in der Standardkonfiguration nicht. Dann nichts raten. Als Notiz auf die Karte, was beobachtet wurde; der Maintainer entscheidet, ob der Test-Realm einen Mapper oder Step-up-Flow bekommt. Die beiden letzten Assertions des Live-Tests bleiben rot, bis das geklärt ist.
+1. The OTP login carries an `amr` from `mfa`/`otp`/`hwk`, the password login does not: the defaults are right, change nothing.
+2. The difference lies in `acr` (or in other `amr` values): set the defaults of `mfa_acr` or `mfa_amr` in `lib/Airlock/Upstream/Keycloak.pm` to the observed values, name the Keycloak version and the observed values in the POD of both attributes, and extend the subtest `factor` in `t/45-upstream-keycloak.t` with a case using exactly these claims.
+3. The tokens of both logins cannot be told apart by `acr` and `amr`: Keycloak does not provide the information in the default configuration. Then do not guess. Note on the card what was observed; the maintainer decides whether the test realm gets a mapper or a step-up flow. The last two assertions of the live test stay red until that is settled.
 
-- [ ] **Step 9: Alles laufen lassen**
+- [ ] **Step 9: Run everything**
 
 Run: `prove -lr t && TEST_AIRLOCK_KEYCLOAK_URL=http://localhost:8080 prove -lv t/90-live-keycloak.t && dzil test`
-Expected: alles PASS (in Fall 3 des vorigen Schritts mit den zwei bekannten roten Assertions im Live-Test, auf der Karte vermerkt).
+Expected: everything PASS (in case 3 of the previous step with the two known red assertions in the live test, noted on the card).
 
-- [ ] **Step 10: Übergabe**
+- [ ] **Step 10: Handover**
 
-Commit-fertig lassen, Karte nach `review`, mit Keycloak-Version und Befund in der Notiz. Betreff: `Add Keycloak subject mapping and live test`; `Changes`: `- Airlock::Upstream::Keycloak: Keycloak token claims as Airlock subject; live test behind TEST_AIRLOCK_KEYCLOAK_URL`.
+Leave it commit-ready, card to `review`, with the Keycloak version and the findings in the note. Subject: `Add Keycloak subject mapping and live test`; `Changes`: `- Airlock::Upstream::Keycloak: Keycloak token claims as Airlock subject; live test behind TEST_AIRLOCK_KEYCLOAK_URL`.

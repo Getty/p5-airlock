@@ -1,89 +1,89 @@
 # Airlock – Design
 
-Datum: 2026-10-02 (Revision 3: beim Planen geklärte Details, siehe Abschnitt 11)
-Status: freigegeben am 2026-10-02; Umsetzungsplan in `docs/superpowers/plans/2026-10-02-airlock-phase-1.md`
-Distribution: `Airlock` (Repo `p5-airlock`), CPAN-fähig, `[@Author::GETTY]`
+Date: 2026-10-02 (revision 3: details clarified during planning, see section 11)
+Status: approved on 2026-10-02; implementation plan in `docs/superpowers/plans/2026-10-02-airlock-phase-1.md`
+Distribution: `Airlock` (repo `p5-airlock`), CPAN-ready, `[@Author::GETTY]`
 
-## 1. Was Airlock ist
+## 1. What Airlock is
 
-**Airlock ist die Schleuse: eine wartende Anfrage wird von einer bereits vertrauten
-Session bestätigt, bei Bedarf erst nach einem zweiten Faktor.**
+**Airlock is the airlock: a waiting request is confirmed by an already trusted
+session, if needed only after a second factor.**
 
-Der erste und wichtigste Anwendungsfall ist die Server-Seite des OAuth 2.0 Device
-Authorization Grant (RFC 8628): Ein Gerät oder CLI zeigt einen kurzen Code, ein
-eingeloggter Mensch tippt oder scannt ihn woanders, sieht wer was will, bestätigt, und
-das Gerät bekommt ein Token.
+The first and most important use case is the server side of the OAuth 2.0 Device
+Authorization Grant (RFC 8628): a device or CLI shows a short code, a
+logged-in human types or scans it somewhere else, sees who wants what, confirms, and
+the device gets a token.
 
-Airlock ist ein **Kern zum Einbauen**, keine fertige Anwendung. Die Host-App bringt mit:
+Airlock is a **core to embed**, not a finished application. The host app brings:
 
-- wer gerade eingeloggt ist (eigene Session, oder ein IdP wie Keycloak dahinter),
-- die Bestätigungsseite in ihrem eigenen Look, mit ihren eigenen Templates,
-- wo Daten liegen (eine Handvoll Subs gegen die Datenbank, die sie schon hat).
+- who is currently logged in (its own session, or an IdP like Keycloak behind it),
+- the confirmation page in its own look, with its own templates,
+- where data lives (a handful of subs against the database it already has).
 
-Airlock bringt mit: Codes, Zustandsautomat, Poll-Regeln, einmaliges Einlösen,
-Step-up-Regeln, zweite Faktoren, QR-Codes, die beiden Maschinen-Endpunkte als PSGI, und
-Funktionen für alles, was die Host-App selbst darstellen will.
+Airlock brings: codes, state machine, poll rules, one-time redemption,
+step-up rules, second factors, QR codes, the two machine endpoints as PSGI, and
+functions for everything the host app wants to render itself.
 
-Erster Nutzer ist Mothership (`mothership-web`, mehrere Prefork-Worker, Anbindung des
-Stores über DBIO).
+The first user is Mothership (`mothership-web`, several prefork workers, store
+connected via DBIO).
 
-### Was Airlock nicht ist
+### What Airlock is not
 
-- **Kein Identity Provider.** Keine Konten, keine Passwörter, kein Login-Formular, kein
-  OIDC-Discovery für Dritte. Wer bestätigt, sagt die Host-App.
-- **Keine Oberfläche.** Kein HTML, keine Templates, kein CSS. Airlock liefert der
-  Bestätigungsseite die Daten und nimmt ihre Entscheidung entgegen; wie sie aussieht,
-  gehört dem System, in das Airlock eingebaut wird.
-- **Kein allgemeiner OAuth-Server.** Kein Authorization-Code-Flow, kein Client-Secret-
-  Handling, keine Refresh-Tokens in v1.
-- **Kein Ersatz für die MFA eines IdP.** Hat Keycloak den zweiten Faktor schon geprüft,
-  übernimmt Airlock das Ergebnis und fragt nicht noch einmal.
-- **Kein Datenbank-Treiber.** Kein DBI, kein ORM. Der Store ist eine Handvoll Coderefs.
+- **Not an identity provider.** No accounts, no passwords, no login form, no
+  OIDC discovery for third parties. Who confirms is up to the host app.
+- **No user interface.** No HTML, no templates, no CSS. Airlock gives the
+  confirmation page its data and takes its decision; how it looks
+  belongs to the system Airlock is embedded in.
+- **Not a general OAuth server.** No authorization code flow, no client secret
+  handling, no refresh tokens in v1.
+- **Not a replacement for an IdP's MFA.** If Keycloak has already checked the second factor,
+  Airlock takes over the result and does not ask again.
+- **Not a database driver.** No DBI, no ORM. The store is a handful of coderefs.
 
-## 2. Begriffe
+## 2. Terms
 
-| Begriff | Bedeutung |
+| Term | Meaning |
 |---|---|
-| **Request** | Die wartende Anfrage: `device_code`, `user_code`, Client, Scopes, Zustand, Ablauf |
-| **Client** | Wer anfragt (CLI, Gerät, App), identifiziert durch `client_id` |
-| **Subject** | Wer bestätigt: die eingeloggte Person, von der Host-App geliefert |
-| **Factor** | Ein zweiter Faktor, der eine Bestätigung absichert (TOTP, WebAuthn, …) |
-| **Policy** | Entscheidet pro Request, welche Faktoren nötig sind |
-| **Grant** | Die bestätigte, einlösbare Anfrage: Subject, Scopes, `amr`, `auth_time` |
-| **Issuer** | Macht aus einem Grant die Token-Antwort |
+| **Request** | The waiting request: `device_code`, `user_code`, client, scopes, state, expiry |
+| **Client** | Who is asking (CLI, device, app), identified by `client_id` |
+| **Subject** | Who confirms: the logged-in person, supplied by the host app |
+| **Factor** | A second factor that secures a confirmation (TOTP, WebAuthn, …) |
+| **Policy** | Decides per request which factors are needed |
+| **Grant** | The confirmed, redeemable request: subject, scopes, `amr`, `auth_time` |
+| **Issuer** | Turns a grant into the token response |
 
-Zustände eines Requests: `pending → approved | denied | expired`, und `approved → redeemed`
-(genau einmal).
+States of a request: `pending → approved | denied | expired`, and `approved → redeemed`
+(exactly once).
 
-## 3. Schichten
+## 3. Layers
 
 ```
-Host-App (Mothership, …)
+Host app (Mothership, …)
    │
-   │  Maschinen-Seite (JSON)                 Menschen-Seite (Host-App rendert selbst)
+   │  Machine side (JSON)                    Human side (host app renders it itself)
    │  ───────────────────────                ─────────────────────────────────────────
    ├─ $airlock->to_app          PSGI         $airlock->inspect / requirements
    ├─ $airlock->handle($req)    HTTP::Request → HTTP::Response
    │                                         $airlock->approve / deny
    │                                         Airlock::QR
    │
-   └─ Airlock                   Kern: Funktionen, kein Web-Framework
-        ├─ store    => { ... }  vier Subs der Host-App (Memory eingebaut)
-        ├─ factors  => [ ... ]  TOTP, Callback, Upstream, später WebAuthn
-        ├─ policy               Step-up-Regeln
-        ├─ issuer   => sub      Token-Ausgabe (Opaque eingebaut)
-        ├─ Airlock::Code        Code-Erzeugung und -Normalisierung
+   └─ Airlock                   Core: functions, no web framework
+        ├─ store    => { ... }  four subs of the host app (memory built in)
+        ├─ factors  => [ ... ]  TOTP, Callback, Upstream, WebAuthn later
+        ├─ policy               Step-up rules
+        ├─ issuer   => sub      Token issuing (opaque built in)
+        ├─ Airlock::Code        Code generation and normalization
         └─ Airlock::QR          SVG, Terminal, Data-URI
 
-Airlock::Client                 Gegenseite: RFC-8628-Client für CLIs
+Airlock::Client                 Other side: RFC 8628 client for CLIs
 ```
 
-Es gibt genau eine neutrale Stelle, an der eine Anfrage beantwortet wird:
-`$airlock->respond($method, $path, \%params)` liefert `[$status, \%headers, \%json]`.
-`to_app` und `handle` sind zwei dünne Hüllen darum. Wer ein anderes Framework hat, baut
-die dritte Hülle in zehn Zeilen oder ruft die Kern-Methoden direkt.
+There is exactly one neutral place where a request is answered:
+`$airlock->respond($method, $path, \%params)` returns `[$status, \%headers, \%json]`.
+`to_app` and `handle` are two thin wrappers around it. Anyone with a different framework builds
+the third wrapper in ten lines or calls the core methods directly.
 
-## 4. Kern-API
+## 4. Core API
 
 ```perl
 my $airlock = Airlock->new(
@@ -91,271 +91,271 @@ my $airlock = Airlock->new(
   clients => { 'mothership-cli' => { name => 'Mothership CLI', scopes => [qw(read admin)] } },
   policy  => { step_up => { admin => ['totp'] }, max_auth_age => 300 },
   factors => [ Airlock::Factor::Callback->new(name => 'totp', amr => 'otp', verify => sub {...}) ],
-  issuer  => sub ($grant) { ... },          # weglassen = eingebautes Opaque-Token
+  issuer  => sub ($grant) { ... },          # omit = built-in opaque token
   verification_uri => 'https://my.example.org/airlock',
 );
 
 my $req    = $airlock->open(client_id => $id, scope => 'read admin', origin => { ip => ..., ua => ... });
-my $view   = $airlock->inspect($user_code);                # für die Bestätigungsseite, oder undef
-my $needs  = $airlock->requirements($view, $subject);      # z. B. ['totp'] oder []
+my $view   = $airlock->inspect($user_code);                # for the confirmation page, or undef
+my $needs  = $airlock->requirements($view, $subject);      # e.g. ['totp'] or []
 my $done   = $airlock->approve($user_code, subject => $subject, proofs => { totp => '123456' });
 my $done   = $airlock->deny($user_code, subject => $subject);
 my $result = $airlock->redeem(device_code => $dc, client_id => $id);
 ```
 
-- `open` liefert die Felder aus RFC 8628 §3.2 einschließlich `verification_uri_complete`.
-- `inspect` liefert alles, was eine Bestätigungsseite zeigen muss: Client-Name, Scopes,
-  Herkunft, Alter, Restlaufzeit. Reine Daten, kein Markup.
-- `redeem` liefert genau einen von `granted`, `authorization_pending`, `slow_down`,
-  `access_denied`, `expired_token`, `invalid_grant`. Bei `granted` hängt die Token-Antwort
-  des Issuers dran.
-- `subject` ist eine Struktur der Host-App: mindestens `id`, optional `amr`, `acr`,
-  `auth_time` (siehe Abschnitt 7).
-- Zeit kommt über ein injizierbares `now`, damit Tests Ablauf und `slow_down` ohne `sleep`
-  prüfen.
-- `on_event` (Callback) meldet `opened`, `approved`, `denied`, `redeemed`,
-  `factor_failed`, `code_miss`. Daran hängt die Host-App Audit-Log und Rate-Limits.
+- `open` returns the fields from RFC 8628 §3.2 including `verification_uri_complete`.
+- `inspect` returns everything a confirmation page has to show: client name, scopes,
+  origin, age, remaining lifetime. Pure data, no markup.
+- `redeem` returns exactly one of `granted`, `authorization_pending`, `slow_down`,
+  `access_denied`, `expired_token`, `invalid_grant`. With `granted`, the issuer's token
+  response is attached.
+- `subject` is a structure of the host app: at least `id`, optionally `amr`, `acr`,
+  `auth_time` (see section 7).
+- Time comes through an injectable `now`, so tests check expiry and `slow_down`
+  without `sleep`.
+- `on_event` (callback) reports `opened`, `approved`, `denied`, `redeemed`,
+  `factor_failed`, `code_miss`. The host app hangs its audit log and rate limits on it.
 
-## 5. Einbinden
+## 5. Embedding
 
-### Maschinen-Endpunkte
+### Machine endpoints
 
 ```perl
-# PSGI, ohne Plack-Abhängigkeit
+# PSGI, without a Plack dependency
 builder { mount '/airlock' => $airlock->to_app; mount '/' => $app };
 
-# überall sonst: HTTP::Request rein, HTTP::Response raus
+# everywhere else: HTTP::Request in, HTTP::Response out
 my $res = $airlock->handle($http_request);
 ```
 
-| Route | Zweck |
+| Route | Purpose |
 |---|---|
-| `POST …/device` | Client holt Codes (RFC 8628 §3.1) |
-| `POST …/token` | Client pollt (RFC 8628 §3.4) |
+| `POST …/device` | Client fetches codes (RFC 8628 §3.1) |
+| `POST …/token` | Client polls (RFC 8628 §3.4) |
 
-Mehr Routen gibt es nicht. `to_app` liest den form-kodierten Body selbst aus dem
-PSGI-Env und braucht kein Plack. `handle` lädt `HTTP::Message` erst beim Aufruf; es ist
-eine `recommends`-Abhängigkeit.
+There are no more routes. `to_app` reads the form-encoded body itself from the
+PSGI env and needs no Plack. `handle` loads `HTTP::Message` only when called; it is
+a `recommends` dependency.
 
-### Menschen-Seite
+### Human side
 
-Die Host-App baut zwei Handler in ihrem eigenen Framework: einen, der mit `inspect` und
-`requirements` die Seite füllt, und einen, der das Formular mit `approve` oder `deny`
-abschließt. Login-Pflicht, CSRF und Templates sind ihre Sache. Airlock gibt ihr dazu den
-QR-Code (Abschnitt 6) und klare Ergebnis-Objekte mit Fehlergrund.
+The host app builds two handlers in its own framework: one that fills the page with `inspect` and
+`requirements`, and one that completes the form with `approve` or `deny`.
+Login enforcement, CSRF and templates are its business. Airlock gives it the
+QR code (section 6) and clear result objects with a failure reason.
 
-`examples/` zeigt den vollständigen Einbau: eine Plack-App mit minimaler
-Bestätigungsseite, dieselbe in Mojolicious, und den Store einmal mit DBI und einmal mit
-DBIO. Ein Mojolicious-Plugin gibt es erst, wenn das Beispiel sich als zu viel Tipparbeit
-herausstellt (Phase 2).
+`examples/` shows the complete integration: a Plack app with a minimal
+confirmation page, the same in Mojolicious, and the store once with DBI and once with
+DBIO. A Mojolicious plugin comes only if the example turns out to be too much typing
+(phase 2).
 
-## 6. Bausteine
+## 6. Building blocks
 
-### Store: vier Subs
+### Store: four subs
 
 ```perl
 store => {
-  insert => sub ($row)                         { ... },   # neuen Request ablegen
-  find   => sub ($field, $value)               { ... },   # per user_code oder device_hash
-  update => sub ($id, $from_state, \%changes)  { ... },   # nur wenn Zustand == $from_state; liefert wahr/falsch
-  purge  => sub ($before_epoch)                { ... },   # optional: Abgelaufenes wegräumen
+  insert => sub ($row)                         { ... },   # store a new request
+  find   => sub ($field, $value)               { ... },   # by user_code or device_hash
+  update => sub ($id, $from_state, \%changes)  { ... },   # only if state == $from_state; returns true/false
+  purge  => sub ($before_epoch)                { ... },   # optional: clear out expired rows
 }
 ```
 
-`$row` ist ein flacher Hash mit festen Schlüsseln (in der Doku als Tabelle, mit
-SQL-Beispielschema in `examples/`). `update` ist die einzige Stelle, die atomar sein
-muss: Die Bedingung auf den alten Zustand verhindert, dass zwei gleichzeitige Polls zwei
-Tokens ergeben. Ohne `store` benutzt Airlock einen eingebauten Speicher im Prozess, für
-Tests und Ein-Prozess-Apps.
+`$row` is a flat hash with fixed keys (documented as a table, with an
+example SQL schema in `examples/`). `update` is the only place that has to be atomic:
+the condition on the old state prevents two simultaneous polls from producing two
+tokens. Without `store`, Airlock uses a built-in in-process storage, for
+tests and single-process apps.
 
-`Airlock::Test::Store` prüft eine Store-Anbindung gegen den Vertrag: Wer seine vier Subs
-schreibt, lässt die Suite dagegen laufen und weiß, ob sie stimmen. Dieselbe Suite prüft
-den eingebauten Speicher und die Beispiele.
+`Airlock::Test::Store` checks a store binding against the contract: whoever writes their four subs
+runs the suite against them and knows whether they are right. The same suite checks
+the built-in storage and the examples.
 
-Der `device_code` kommt nur als SHA-256 im Store an.
+The `device_code` reaches the store only as SHA-256.
 
 ### Factor (`Airlock::Factor`, Moo::Role)
 
-`name`, `amr` (z. B. `otp`), `available_for($subject)`, `verify($subject, $proof)`.
+`name`, `amr` (e.g. `otp`), `available_for($subject)`, `verify($subject, $proof)`.
 
-- `Airlock::Factor::Callback`: Die Host-App prüft selbst. Das ist der Weg für Mothership,
-  wo TOTP laut Design bei Stalwart liegt und Mothership nichts speichert.
-- `Airlock::Factor::TOTP`: RFC 6238 mit `Digest::SHA`, Fenster ±1, Replay-Schutz über
-  den letzten akzeptierten Zeitschritt, `otpauth://`-URI fürs Einrichten. Geheimnis und
-  letzter Zeitschritt kommen über zwei Subs der Host-App.
-- `Airlock::Factor::Upstream`: gilt als erfüllt, wenn das Subject passende `amr`/`acr`
-  vom IdP mitbringt und `auth_time` frisch genug ist.
-- Später: `Airlock::Factor::WebAuthn` über `Authen::WebAuthn` als optionale Abhängigkeit,
-  und Recovery-Codes.
+- `Airlock::Factor::Callback`: the host app checks for itself. This is the way for Mothership,
+  where by design TOTP lives at Stalwart and Mothership stores nothing.
+- `Airlock::Factor::TOTP`: RFC 6238 with `Digest::SHA`, window ±1, replay protection via
+  the last accepted time step, `otpauth://` URI for setup. The secret and the
+  last time step come through two subs of the host app.
+- `Airlock::Factor::Upstream`: counts as fulfilled when the subject brings matching `amr`/`acr`
+  from the IdP and `auth_time` is fresh enough.
+- Later: `Airlock::Factor::WebAuthn` via `Authen::WebAuthn` as an optional dependency,
+  and recovery codes.
 
 ### Policy
 
-Bildet Request und Subject auf eine Liste nötiger Faktoren ab. Deklarativ für den
-Normalfall (`step_up => { scope => [faktoren] }`, `max_auth_age => 300`), Coderef für
-alles andere. Fehlt dem Subject ein verlangter Faktor, wird nicht bestätigt; das Ergebnis
-sagt, was fehlt.
+Maps request and subject to a list of required factors. Declarative for the
+normal case (`step_up => { scope => [factors] }`, `max_auth_age => 300`), coderef for
+everything else. If the subject lacks a required factor, nothing is confirmed; the result
+says what is missing.
 
 ### Issuer
 
-Ein Sub `($grant) → Token-Antwort`. Ohne Angabe stellt Airlock ein opakes Zufallstoken
-aus, legt es gehasht im Store ab und bietet `verify_token` zum Prüfen. Das reicht, solange
-nur die Host-App selbst das Token akzeptiert. Phase 2 bringt einen fertigen JWT-Issuer mit
-`amr`, `auth_time`, `scope`, `sub` und JWKS-Export.
+A sub `($grant) → token response`. Without one, Airlock issues an opaque random token,
+stores it hashed in the store and offers `verify_token` to check it. That is enough as long as
+only the host app itself accepts the token. Phase 2 brings a ready-made JWT issuer with
+`amr`, `auth_time`, `scope`, `sub` and JWKS export.
 
 ### Code (`Airlock::Code`)
 
-`user_code`: 8 Zeichen aus `BCDFGHJKLMNPQRSTVWXZ` (keine Vokale, nichts Verwechselbares),
-Anzeige `XXXX-XXXX`, Eingabe wird normalisiert (Groß/Klein, Trenner, Leerzeichen).
-`device_code`: 32 Byte aus dem System-Zufall (`Crypt::URandom`).
+`user_code`: 8 characters from `BCDFGHJKLMNPQRSTVWXZ` (no vowels, nothing confusable),
+displayed as `XXXX-XXXX`, input is normalized (case, separators, spaces).
+`device_code`: 32 bytes of system randomness (`Crypt::URandom`).
 
 ### QR (`Airlock::QR`)
 
-Zwei Stellen brauchen QR-Codes, beide über dieselbe kleine API:
+Two places need QR codes, both via the same small API:
 
-1. `verification_uri_complete`: Der Laptop oder das CLI zeigt den QR, das Handy scannt
-   und landet mit vorausgefülltem Code auf der Bestätigungsseite.
-2. TOTP-Einrichtung: die `otpauth://`-URI für die Authenticator-App.
+1. `verification_uri_complete`: the laptop or the CLI shows the QR, the phone scans it
+   and lands on the confirmation page with the code prefilled.
+2. TOTP setup: the `otpauth://` URI for the authenticator app.
 
 ```perl
-Airlock::QR->new(text => $uri)->svg;        # fürs Web, keine Bildbibliothek nötig
-Airlock::QR->new(text => $uri)->terminal;   # Unicode-Halbblöcke fürs CLI
-Airlock::QR->new(text => $uri)->data_uri;   # direkt ins <img src>
-Airlock::QR->new(text => $uri)->matrix;     # rohe Module, für eigene Darstellung
+Airlock::QR->new(text => $uri)->svg;        # for the web, no image library needed
+Airlock::QR->new(text => $uri)->terminal;   # Unicode half blocks for the CLI
+Airlock::QR->new(text => $uri)->data_uri;   # straight into <img src>
+Airlock::QR->new(text => $uri)->matrix;     # raw modules, for your own rendering
 ```
 
-Kodiert wird mit `GD::Barcode::QRcode` (reines Perl; die Dist verlangt zur Laufzeit kein
-GD). Der Encoder sitzt hinter einer kleinen Naht, damit `Text::QRCode` (libqrencode)
-benutzt werden kann, wenn es installiert ist. Der Plan beginnt mit einem Nachweis, dass
-die erzeugte Matrix sich mit einem unabhängigen Decoder zurücklesen lässt; fällt der
-Nachweis durch, wird der Encoder gewechselt, bevor etwas darauf aufbaut.
+Encoding uses `GD::Barcode::QRcode` (pure Perl; the dist does not require
+GD at runtime). The encoder sits behind a small seam, so that `Text::QRCode` (libqrencode)
+can be used when it is installed. The plan starts with a proof that
+the generated matrix can be read back with an independent decoder; if the
+proof fails, the encoder is switched before anything builds on it.
 
 ### `Airlock::Client`
 
-Die Gegenseite, also das, womit dieses Projekt angefangen hat: ein RFC-8628-Client mit
-`HTTP::Tiny`. Findet die Endpunkte per `.well-known/openid-configuration`
-(`device_authorization_endpoint`) oder bekommt sie direkt, zeigt Code und Terminal-QR,
-pollt und beachtet `slow_down`. Spricht mit Airlock, Keycloak und GitHub gleichermaßen.
+The other side, i.e. what this project started with: an RFC 8628 client with
+`HTTP::Tiny`. Finds the endpoints via `.well-known/openid-configuration`
+(`device_authorization_endpoint`) or gets them directly, shows the code and a terminal QR,
+polls and honors `slow_down`. Talks to Airlock, Keycloak and GitHub alike.
 
-## 7. Keycloak: minimal, aber getestet
+## 7. Keycloak: minimal, but tested
 
-Zwei Berührungspunkte in v1, beide gegen ein echtes Keycloak geprüft:
+Two touch points in v1, both checked against a real Keycloak:
 
-**A. Keycloak ist die Login-Quelle der Bestätigungsseite.** Die Host-App loggt per OIDC
-ein und reicht Airlock das Subject samt `amr`, `acr` und `auth_time` aus dem ID-Token.
-`Airlock::Factor::Upstream` erkennt daran, ob Keycloak schon einen zweiten Faktor geprüft
-hat. Fehlt er, liefert Airlock der Host-App die Parameter (`acr_values`, `max_age=0`),
-mit denen sie die Person noch einmal zu Keycloak schickt. Wie Keycloak `acr` und `amr`
-tatsächlich füllt, wird nicht aus der Doku übernommen, sondern am echten Token
-festgestellt und als `Airlock::Upstream::Keycloak` festgehalten.
+**A. Keycloak is the login source of the confirmation page.** The host app logs in via OIDC
+and hands Airlock the subject including `amr`, `acr` and `auth_time` from the ID token.
+`Airlock::Factor::Upstream` uses them to recognize whether Keycloak has already checked a second factor.
+If not, Airlock gives the host app the parameters (`acr_values`, `max_age=0`)
+with which it sends the person to Keycloak once more. How Keycloak actually fills `acr` and `amr`
+is not taken from the docs, but determined on the real token
+and recorded as `Airlock::Upstream::Keycloak`.
 
-**B. Der Client spricht direkt mit Keycloak.** Keycloak kann den Device-Grant selbst.
-`Airlock::Client` muss gegen dessen Endpunkte durchlaufen.
+**B. The client talks to Keycloak directly.** Keycloak supports the device grant itself.
+`Airlock::Client` has to run through against its endpoints.
 
-**Der Live-Test** (`t/90-live-keycloak.t`, nur wenn `TEST_AIRLOCK_KEYCLOAK_URL` gesetzt
-ist) braucht ein Keycloak mit einem Realm, einem Client mit eingeschaltetem Device-Flow
-und einem Nutzer mit TOTP. Für den Test reicht ein Container mit Realm-Import aus einer
-JSON-Datei in `t/keycloak/`; ein Admin-Client ist dafür nicht nötig.
+**The live test** (`t/90-live-keycloak.t`, only when `TEST_AIRLOCK_KEYCLOAK_URL` is
+set) needs a Keycloak with a realm, a client with the device flow turned on
+and a user with TOTP. For the test, a container with a realm import from a
+JSON file in `t/keycloak/` is enough; no admin client is needed for it.
 
-**Nicht in v1:** Zitadel- und Authentik-Abbildungen (dieselbe Naht, kommen bei Bedarf),
-Airlock als Fassade vor Keycloaks Device-Endpunkt (unnötig), und von Dritten prüfbare
-Airlock-Tokens samt Token Exchange (Phase 2/3; ab dort ist Airlock faktisch ein kleiner
-Aussteller, was für Mothership die Zeile „Kein Identity Provider“ berührt).
+**Not in v1:** Zitadel and Authentik mappings (same seam, they come when needed),
+Airlock as a facade in front of Keycloak's device endpoint (unnecessary), and Airlock tokens
+verifiable by third parties including token exchange (phase 2/3; from there on Airlock is effectively a small
+issuer, which touches the line "Not an identity provider" for Mothership).
 
-**Außerhalb dieser Dist:** Auf CPAN gibt es kein Keycloak-Modul (Stand 2026-10-02; die
-Suche findet nur generische OIDC- und SAML-Module, die Keycloak erwähnen). Ein
-`WWW::Keycloak` nach dem Muster von `WWW::Zitadel` (OIDC plus Admin-API für Realms,
-Clients, Nutzer) ist eine eigene Dist und die Grundlage für ein automatisches
-Keycloak-Setup. Airlock hängt nicht davon ab.
+**Outside this dist:** there is no Keycloak module on CPAN (as of 2026-10-02; the
+search only finds generic OIDC and SAML modules that mention Keycloak). A
+`WWW::Keycloak` following the pattern of `WWW::Zitadel` (OIDC plus admin API for realms,
+clients, users) is a separate dist and the basis for an automated
+Keycloak setup. Airlock does not depend on it.
 
-## 8. Sicherheit
+## 8. Security
 
-- `user_code` hat rund 2,5 · 10¹⁰ Möglichkeiten und lebt 10 Minuten. Fehlversuche meldet
-  der Kern als `code_miss` mit Subject und Herkunft; begrenzen muss die Host-App, weil nur
-  sie Sessions und IPs kennt. Die Doku sagt das deutlich, das Beispiel macht es vor.
-- `inspect` liefert Client-Namen, Scopes, Herkunft (IP, User-Agent) und Alter der Anfrage,
-  damit die Seite sie zeigen kann. Bestätigt wird nur durch einen `approve`-Aufruf mit
-  Subject, nie durch bloßes Öffnen von `verification_uri_complete`.
-- `device_code` nur gehasht im Store; Vergleiche in konstanter Zeit.
-- Einlösen ist atomar und einmalig.
-- Faktoren: Replay-Schutz bei TOTP, begrenzte Versuche pro Request, danach ist der Request
+- `user_code` has about 2.5 · 10¹⁰ possibilities and lives 10 minutes. The core reports failed attempts
+  as `code_miss` with subject and origin; the host app has to do the limiting, because only
+  it knows sessions and IPs. The docs say so clearly, the example demonstrates it.
+- `inspect` returns client name, scopes, origin (IP, user agent) and the age of the request,
+  so the page can show them. Confirmation happens only through an `approve` call with a
+  subject, never by merely opening `verification_uri_complete`.
+- `device_code` only hashed in the store; comparisons in constant time.
+- Redemption is atomic and one-time.
+- Factors: replay protection for TOTP, limited attempts per request, after which the request is
   `denied`.
-- Fehlerantworten strikt nach RFC 8628 (HTTP 400 mit `error`).
-- Keine Codes, Tokens oder Faktor-Geheimnisse in Logs oder Events.
+- Error responses strictly per RFC 8628 (HTTP 400 with `error`).
+- No codes, tokens or factor secrets in logs or events.
 
-## 9. Tests und Phasen
+## 9. Tests and phases
 
-Tests: Zustandsautomat mit eingebautem Speicher und gestellter Uhr; `Airlock::Test::Store`
-gegen den eingebauten Speicher und gegen das DBI-Beispiel auf SQLite; TOTP gegen die
-Testvektoren aus RFC 6238; QR durch Zurücklesen; `to_app` mit rohen PSGI-Envs und
-`handle` mit `HTTP::Request`; `Airlock::Client` gegen `to_app` auf einem lokalen Port;
-Keycloak live hinter der Umgebungsvariable.
+Tests: state machine with built-in storage and a fake clock; `Airlock::Test::Store`
+against the built-in storage and against the DBI example on SQLite; TOTP against the
+test vectors from RFC 6238; QR by reading back; `to_app` with raw PSGI envs and
+`handle` with `HTTP::Request`; `Airlock::Client` against `to_app` on a local port;
+Keycloak live behind the environment variable.
 
-| Phase | Inhalt |
+| Phase | Content |
 |---|---|
-| 1 | Kern, Code, Policy, Store-Subs mit eingebautem Speicher, `Airlock::Test::Store`, Factor::Callback/TOTP/Upstream, Issuer-Sub mit Opaque-Standard, QR, `to_app`, `handle`, Client, Keycloak-Abbildung mit Live-Test, Beispiele (Plack, Mojolicious, DBI, DBIO) |
-| 2 | JWT-Issuer mit JWKS, Recovery-Codes, Mojolicious-Plugin falls nötig, weitere IdP-Abbildungen |
-| 3 | Factor::WebAuthn, „Login auf zweitem Gerät bestätigen“ (Session statt Token), Token Exchange |
+| 1 | Core, code, policy, store subs with built-in storage, `Airlock::Test::Store`, Factor::Callback/TOTP/Upstream, issuer sub with opaque default, QR, `to_app`, `handle`, client, Keycloak mapping with live test, examples (Plack, Mojolicious, DBI, DBIO) |
+| 2 | JWT issuer with JWKS, recovery codes, Mojolicious plugin if needed, further IdP mappings |
+| 3 | Factor::WebAuthn, "confirm login on a second device" (session instead of token), token exchange |
 
-Abhängigkeiten in Phase 1: `Moo`, `Crypt::URandom`, `JSON::MaybeXS`, `GD::Barcode`,
-`HTTP::Tiny`, `Digest::SHA`. `HTTP::Message` als `recommends`. Kein Plack, kein DBI, kein
-Mojolicious zur Laufzeit; die Beispiele und Tests ziehen sie nur als Test- oder
-Entwicklungs-Abhängigkeit.
+Dependencies in phase 1: `Moo`, `Crypt::URandom`, `JSON::MaybeXS`, `GD::Barcode`,
+`HTTP::Tiny`, `Digest::SHA`. `HTTP::Message` as `recommends`. No Plack, no DBI, no
+Mojolicious at runtime; the examples and tests pull them in only as test or
+development dependencies.
 
-## 10. Entschieden
+## 10. Decided
 
-- Eine Dist `Airlock`, Client darin.
-- PSGI und Funktionen in Phase 1, dazu `HTTP::Request`/`HTTP::Response`. Mojolicious
-  frühestens Phase 2.
-- Keine Templates, keine Oberfläche in Airlock.
-- Store als Subs der Host-App, Beispiele für DBI und DBIO, kein Treiber in der Dist.
-- Keycloak minimal (Login-Quelle plus Client), live getestet.
-- Opakes Token als Standard, JWT in Phase 2.
+- One dist `Airlock`, with the client in it.
+- PSGI and functions in phase 1, plus `HTTP::Request`/`HTTP::Response`. Mojolicious
+  phase 2 at the earliest.
+- No templates, no user interface in Airlock.
+- Store as subs of the host app, examples for DBI and DBIO, no driver in the dist.
+- Keycloak minimal (login source plus client), tested live.
+- Opaque token as default, JWT in phase 2.
 
-## 11. Beim Planen geklärt (Revision 3)
+## 11. Clarified during planning (revision 3)
 
-Der Umsetzungsplan wurde gegen einen lauffähigen Prototyp geschrieben. Dabei haben sich
-mehrere Punkte gegenüber dem Text oben verschoben; wo sie ihm widersprechen, gelten sie.
+The implementation plan was written against a working prototype. In the process,
+several points shifted relative to the text above; where they contradict it, they win.
 
-- **`handle` ist keine Methode von `Airlock`.** Es lebt in `Airlock::HTTPMessage->new(
-  airlock => $airlock )->handle( $request, ip => ... )`. Grund: Die Hausregel verbietet
-  verzögertes `require`, und `Airlock` selbst soll nicht von `HTTP::Message` abhängen.
-  `to_app` und `respond` bleiben Methoden von `Airlock`.
-- **Die Store-Zeile** hat die Felder `hash kind user_code client_id scope state created
+- **`handle` is not a method of `Airlock`.** It lives in `Airlock::HTTPMessage->new(
+  airlock => $airlock )->handle( $request, ip => ... )`. Reason: the house rule forbids
+  deferred `require`, and `Airlock` itself should not depend on `HTTP::Message`.
+  `to_app` and `respond` stay methods of `Airlock`.
+- **The store row** has the fields `hash kind user_code client_id scope state created
   expires poll_interval last_poll subject amr acr auth_time approved origin_ip origin_ua
-  factor_failures`. `find` sucht nach `hash` oder `user_code`. Das Poll-Intervall heißt
-  `poll_interval`, weil `INTERVAL` in manchen SQL-Dialekten reserviert ist.
-- **Opake Tokens liegen in derselben Tabelle** wie die Anfragen (`kind` ist `request` oder
-  `token`). So bleibt der Store bei vier Subs. Dazu gibt es `revoke_token`.
-- **Der `user_code` bleibt an einer bestätigten Anfrage**, bis sie eingelöst, abgelehnt
-  oder abgelaufen ist. Nur so meldet ein Doppelklick auf „Bestätigen“ beim zweiten Mal
-  ebenfalls Erfolg statt „Code unbekannt“. Für jede andere Person bleibt der Code unbekannt.
-- **Der eingebaute Speicher verweigert die Benutzung über einen Fork hinweg.** Unter einem
-  Prefork-Server wären Codes sonst zufällig unbekannt.
-- **Die Encoder-Naht von `Airlock::QR` ist ein Coderef-Attribut** (`encoder`). Eine
-  automatische Umschaltung auf `Text::QRCode` gibt es nicht. Der Nachweis ist erbracht:
-  `GD::Barcode::QRcode` 2.02 läuft ohne GD, und ein unabhängiger Decoder (jsQR) liest die
-  Matrizen in allen vier Fehlerkorrektur-Stufen zurück.
-- **`code_miss` trägt das Subject, nicht die Herkunft.** IP und Session kennt die Host-App
-  an der Stelle selbst.
+  factor_failures`. `find` searches by `hash` or `user_code`. The poll interval is called
+  `poll_interval`, because `INTERVAL` is reserved in some SQL dialects.
+- **Opaque tokens live in the same table** as the requests (`kind` is `request` or
+  `token`). That keeps the store at four subs. There is also `revoke_token`.
+- **The `user_code` stays on a confirmed request** until it is redeemed, denied
+  or expired. Only that way does a double click on "Confirm" also report success the second time
+  instead of "unknown code". For every other person the code stays unknown.
+- **The built-in storage refuses use across a fork.** Under a
+  prefork server, codes would otherwise be randomly unknown.
+- **The encoder seam of `Airlock::QR` is a coderef attribute** (`encoder`). There is no
+  automatic switch to `Text::QRCode`. The proof is done:
+  `GD::Barcode::QRcode` 2.02 runs without GD, and an independent decoder (jsQR) reads the
+  matrices back at all four error correction levels.
+- **`code_miss` carries the subject, not the origin.** The host app knows IP and session
+  itself at that point.
 
-Nach dem unabhängigen Review und dem ersten Live-Lauf gegen Keycloak kamen dazu:
+After the independent review and the first live run against Keycloak, these were added:
 
-- **Der Store kann addieren.** Ein Wert in den Änderungen von `update`, der eine Referenz
-  auf eine Zahl ist (`{ factor_failures => \1 }`), wird zur Spalte addiert. Nur so zählen
-  parallele Fehlversuche einzeln; `Airlock::Test::Store` prüft es.
-- **Faktoren haben zwei Phasen:** `verify` prüft, `commit` verbraucht. Ein TOTP-Code wird
-  erst verbraucht, wenn alle Faktoren einer Bestätigung gehalten haben, und `accept_step`
-  kann eine verlorene Wettlauf-Situation durch einen falschen Rückgabewert melden.
-- **Ein leerer Nachweis gilt als fehlend,** nicht als Fehlversuch.
-- **`auth_time` wird nicht erfunden.** Bringt das Subject keines mit, hat der Grant keines.
-- **Keycloak-Befund (26.8.0):** Im Standard-Realm tragen Passwort-Login und Login mit TOTP
-  beide `acr=1` und kein `amr`. Mit dem AMR-Protocol-Mapper am Client und Referenzwerten
-  an den Schritten der Authentication-Flows (`t/keycloak/setup.pl`) meldet Keycloak
-  `amr=pwd` beziehungsweise `amr=pwd,otp`, und `Airlock::Factor::Upstream` unterscheidet
-  die Logins. Punkt A und Punkt B aus Abschnitt 7 sind damit live bestätigt: Der Test
-  fährt einen vollständigen Device-Flow mit Browser-Login gegen Keycloak. Details in
+- **The store can add.** A value in the changes of `update` that is a reference
+  to a number (`{ factor_failures => \1 }`) is added to the column. Only that way do
+  parallel failed attempts count individually; `Airlock::Test::Store` checks it.
+- **Factors have two phases:** `verify` checks, `commit` consumes. A TOTP code is
+  consumed only once all factors of a confirmation have held, and `accept_step`
+  can report a lost race by returning a false value.
+- **An empty proof counts as missing,** not as a failed attempt.
+- **`auth_time` is not invented.** If the subject brings none, the grant has none.
+- **Keycloak finding (26.8.0):** in the default realm, password login and login with TOTP
+  both carry `acr=1` and no `amr`. With the AMR protocol mapper on the client and reference values
+  on the steps of the authentication flows (`t/keycloak/setup.pl`), Keycloak reports
+  `amr=pwd` or `amr=pwd,otp` respectively, and `Airlock::Factor::Upstream` tells
+  the logins apart. Points A and B from section 7 are thus confirmed live: the test
+  runs a complete device flow with a browser login against Keycloak. Details in
   `t/keycloak/README.md`.
 
-Die Policy ist eine eigene Klasse `Airlock::Policy`; ein Hash wird beim Konstruieren
-umgewandelt. Ergebnisse sind `Airlock::Result`-Objekte mit `ok`, `status`, `data`,
-`missing` und `oauth`.
+The policy is a separate class `Airlock::Policy`; a hash is converted at construction.
+Results are `Airlock::Result` objects with `ok`, `status`, `data`,
+`missing` and `oauth`.
