@@ -1,6 +1,8 @@
 Revision history for Airlock
 
 {{$NEXT}}
+    - The DBIO example schema declares its driver (SQLite), which current
+      DBIO requires of every schema class
     - Airlock::Client keeps what the server sends out of the terminal on the
       error path too: the error and error_description of a refusal, the
       status line of a failed request and of a failed discovery now reach
