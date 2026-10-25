@@ -13,7 +13,8 @@ Airlock depends on neither provider client at runtime.
 ## Delegation
 
 Delegate behavior-relevant code to the right agent instead of touching it yourself —
-principle and lane are in `.claude/rules/airlock-rules.md`.
+the principle is a shared house rule (skilletor bundle `getty-cpan-dist@getty`); lanes and
+hazards are in `.claude/rules/airlock-rules.md`.
 
 | Task | Agent |
 |---|---|
