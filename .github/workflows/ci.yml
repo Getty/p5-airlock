@@ -39,7 +39,7 @@ jobs:
         run: perl -V
       - name: Install zbar-tools (QR read-back test)
         run: apt-get update && apt-get install -y --no-install-recommends zbar-tools
-      - uses: Getty/p5-dist-zilla-pluginbundle-author-getty/.github/actions/dzil-test@main
+      - uses: Getty/p5-dist-zilla-pluginbundle-author-getty/.github/actions/dzil-test@v1
 
   live-authentik:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
