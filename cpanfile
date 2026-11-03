@@ -6,10 +6,9 @@ requires 'HTTP::Tiny';
 requires 'JSON::MaybeXS';
 requires 'MIME::Base64', '3.11';
 requires 'Moo';
+requires 'namespace::autoclean', '0.16';
 requires 'Test::More', '0.96';
 requires 'Type::Tiny';
-requires 'namespace::autoclean', '0.16';
-
 recommends 'HTTP::Message';
 recommends 'IO::Socket::SSL';
 
